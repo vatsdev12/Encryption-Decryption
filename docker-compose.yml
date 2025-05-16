@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - DB_HOST=postgres
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - DB_NAME=dataStore
+      - DB_PORT=5432
+      - GOOGLE_CLOUD_PROJECT=encryption-460013
+      - KMS_LOCATION_ID=global
+      - KMS_KEY_RING_ID=Data-key-ring
+      - KMS_KEY_ID=my-data-key
+      - GOOGLE_APPLICATION_CREDENTIALS=/usr/src/app/gcp-credentials.json
+    depends_on:
+      - postgres
+    volumes:
+      - .:/usr/src/app
+      - /usr/src/app/node_modules
+      - ./gcp-credentials.json:/usr/src/app/gcp-credentials.json:ro
+    command: npm run dev
+
+  postgres:
+    image: postgres:latest
+    ports:
+      - "5433:5432"
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=dataStore
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data: 
