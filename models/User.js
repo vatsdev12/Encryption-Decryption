@@ -1,5 +1,6 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('../config/database');
+const encryptionService = require('../services/encryptionService');
 
 const User = sequelize.define('User', {
     id: {
@@ -83,7 +84,30 @@ const User = sequelize.define('User', {
     }
 }, {
     timestamps: true,
-    tableName: 'Users' // Explicitly set table name
+    tableName: 'Users', // Explicitly set table name
+    hooks: {
+        beforeCreate: async (user) => {
+            const encryptedData = await encryptionService.encryptObject('User', user.dataValues);
+            Object.assign(user, encryptedData);
+        },
+        beforeUpdate: async (user) => {
+            const encryptedData = await encryptionService.encryptObject('User', user.dataValues);
+            Object.assign(user, encryptedData);
+        },
+        afterFind: async (result) => {
+            if (Array.isArray(result)) {
+                for (const user of result) {
+                    const decryptedData = await encryptionService.decryptObject('User', user.dataValues);
+                    Object.assign(user, decryptedData);
+                }
+            } else if (result) {
+                const decryptedData = await encryptionService.decryptObject('User', result.dataValues);
+                Object.assign(result, decryptedData);
+            }
+        }
+        
+        
+    }
 });
 
 module.exports = User; 

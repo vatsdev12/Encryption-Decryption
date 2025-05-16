@@ -61,6 +61,7 @@ class EncryptionService {
 
     // Encrypt object fields based on configuration
     async encryptObject(modelName, data) {
+        console.log("🚀 ~ EncryptionService ~ encryptObject ~ modelName, data:", modelName, data)
         const modelConfig = this.config.encryptedFields[modelName];
         if (!modelConfig) return data;
 
@@ -71,7 +72,9 @@ class EncryptionService {
             if (data[field]) {
                 try {
                     const dek = this.generateDEK(modelConfig.dekLength);
+                    console.log("🚀 ~ EncryptionService ~ encryptObject ~ dek:", dek)
                     const fieldData = await this.encryptField(field, data[field], dek);
+                    console.log("🚀 ~ EncryptionService ~ encryptObject ~ fieldData:", fieldData)
 
                     if (fieldData) {
                         // Merge the encrypted field data into the result
@@ -100,6 +103,7 @@ class EncryptionService {
             if (data[field]) {
                 try {
                     const decryptedValue = await this.decryptField(field, data);
+                    console.log("🚀 ~ EncryptionService ~ decryptObject ~ decryptedValue:", decryptedValue)
                     if (decryptedValue !== null) {
                         decryptedData[field] = decryptedValue;
                     }
@@ -116,6 +120,7 @@ class EncryptionService {
             }
         }
 
+        console.log("🚀 ~ EncryptionService ~ decryptObject ~ decryptedData:", decryptedData)
         return decryptedData;
     }
 }
