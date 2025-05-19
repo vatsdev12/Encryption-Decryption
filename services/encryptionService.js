@@ -14,7 +14,7 @@ class EncryptionService {
     }
 
     // Encrypt a single field using DEK
-    async encryptField(fieldName, value, dek) {
+    async encryptField(fieldName, value, dek, username) {
         if (!value) return null;
 
         const iv = crypto.randomBytes(16);
@@ -26,7 +26,7 @@ class EncryptionService {
         const authTag = cipher.getAuthTag();
 
         // Encrypt the DEK with KMS
-        const encryptedDEK = await kmsService.encryptDEK(dek);
+        const encryptedDEK = await kmsService.encryptDEK(dek, username);
 
         return {
             [`${fieldName}`]: encrypted,
@@ -39,10 +39,12 @@ class EncryptionService {
     // Decrypt a single field using its metadata
     async decryptField(fieldName, data) {
         if (!data[fieldName]) return null;
-
+        const username = data.username;
+        console.log("🚀 ~ EncryptionService ~ decryptField ~ username:", username)
         // Decrypt the DEK using KMS
         const dek = await kmsService.decryptDEK({
-            encryptedDEK: Buffer.from(data[`${fieldName}_dek`], 'base64')
+            encryptedDEKData: Buffer.from(data[`${fieldName}_dek`], 'base64'),
+            username: username
         });
 
         const decipher = crypto.createDecipheriv(
@@ -66,14 +68,14 @@ class EncryptionService {
         if (!modelConfig) return data;
 
         const encryptedData = { ...data };
-
+        const username = data.username;
         // Encrypt each field separately
         for (const field of modelConfig.fields) {
             if (data[field]) {
                 try {
                     const dek = this.generateDEK(modelConfig.dekLength);
                     console.log("🚀 ~ EncryptionService ~ encryptObject ~ dek:", dek)
-                    const fieldData = await this.encryptField(field, data[field], dek);
+                    const fieldData = await this.encryptField(field, data[field], dek, username);
                     console.log("🚀 ~ EncryptionService ~ encryptObject ~ fieldData:", fieldData)
 
                     if (fieldData) {

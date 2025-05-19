@@ -1,0 +1,12 @@
+{
+    "Mobcoder": {
+        "keyRingId": "mobcoder-key",
+        "keyId": "my-mobcoder-key",
+        "locationId": "global"
+    },
+    "AstroLabs": {
+        "keyRingId": "mobcoder-key",
+        "keyId": "my-mobcoder-key",
+        "locationId": "global"
+    }
+}
