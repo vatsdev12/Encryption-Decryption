@@ -4,11 +4,27 @@ const User = require('../models/User');
 const sequelize = require('../config/database');
 const { Op } = require('sequelize');
 
+// Helper function to clean user data
+const cleanUserData = (user) => {
+    const cleanData = {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        isActive: user.isActive,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt
+    };
+    return cleanData;
+};
+
 // Get all users
 router.get('/users', async (req, res) => {
     try {
         const users = await User.findAll();
-        res.json(users);
+        const cleanedUsers = users.map(user => cleanUserData(user));
+        res.json(cleanedUsers);
     } catch (error) {
         res.status(500).json({
             message: 'Error fetching users',
@@ -39,7 +55,6 @@ router.post('/users', async (req, res) => {
                 ]
             }
         });
-        console.log("🚀 ~ router.post ~ existingUser:", existingUser)
 
         if (existingUser) {
             return res.status(400).json({
@@ -56,7 +71,8 @@ router.post('/users', async (req, res) => {
             lastName
         });
 
-        res.status(201).json(user);
+        // Return cleaned user data
+        res.status(201).json(cleanUserData(user));
     } catch (error) {
         res.status(500).json({
             message: 'Error creating user',

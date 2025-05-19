@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const kmsService = require('./kmsService');
+const secretManagerService = require('./secretManagerService');
 
 class EncryptionService {
     constructor() {
@@ -13,8 +14,15 @@ class EncryptionService {
         return crypto.randomBytes(length);
     }
 
+    // Generate a unique secret ID for a field
+    generateSecretId(modelName, fieldName, userId) {
+        // For new records, use a temporary ID based on timestamp
+        const id = userId || `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        return `${modelName.toLowerCase()}_${fieldName}_${id}_dek`;
+    }
+
     // Encrypt a single field using DEK
-    async encryptField(fieldName, value, dek) {
+    async encryptField(fieldName, value, dek, userId, modelName) {
         if (!value) return null;
 
         const iv = crypto.randomBytes(16);
@@ -28,11 +36,16 @@ class EncryptionService {
         // Encrypt the DEK with KMS
         const encryptedDEK = await kmsService.encryptDEK(dek);
 
+        // Store the encrypted DEK in Secret Manager
+        const secretId = this.generateSecretId(modelName, fieldName, userId);
+        await secretManagerService.createSecret(secretId, encryptedDEK.encryptedDEK.toString('base64'));
+
         return {
             [`${fieldName}`]: encrypted,
             [`${fieldName}_iv`]: iv.toString('hex'),
-            [`${fieldName}_dek`]: Buffer.from(encryptedDEK.encryptedDEK).toString('base64'),
-            [`${fieldName}_auth_tag`]: authTag.toString('hex')
+            [`${fieldName}_secret_id`]: secretId,
+            [`${fieldName}_auth_tag`]: authTag.toString('hex'),
+            [`${fieldName}_dek`]: encryptedDEK.encryptedDEK.toString('base64')
         };
     }
 
@@ -40,28 +53,45 @@ class EncryptionService {
     async decryptField(fieldName, data) {
         if (!data[fieldName]) return null;
 
-        // Decrypt the DEK using KMS
-        const dek = await kmsService.decryptDEK({
-            encryptedDEK: Buffer.from(data[`${fieldName}_dek`], 'base64')
-        });
+        try {
+            let dek;
 
-        const decipher = crypto.createDecipheriv(
-            'aes-256-gcm',
-            dek,
-            Buffer.from(data[`${fieldName}_iv`], 'hex')
-        );
+            // Check if we're using the new format (Secret Manager)
+            if (data[`${fieldName}_secret_id`]) {
+                const secretId = data[`${fieldName}_secret_id`];
+                const encryptedDEKBase64 = await secretManagerService.getSecret(secretId);
+                const encryptedDEK = Buffer.from(encryptedDEKBase64, 'base64');
+                dek = await kmsService.decryptDEK({ encryptedDEK });
+            }
+            // Check if we're using the old format (direct DEK storage)
+            else if (data[`${fieldName}_dek`]) {
+                const encryptedDEK = Buffer.from(data[`${fieldName}_dek`], 'base64');
+                dek = await kmsService.decryptDEK({ encryptedDEK });
+            }
+            else {
+                throw new Error(`No encryption key found for field ${fieldName}`);
+            }
 
-        decipher.setAuthTag(Buffer.from(data[`${fieldName}_auth_tag`], 'hex'));
+            const decipher = crypto.createDecipheriv(
+                'aes-256-gcm',
+                dek,
+                Buffer.from(data[`${fieldName}_iv`], 'hex')
+            );
 
-        let decrypted = decipher.update(data[fieldName], 'hex', 'utf8');
-        decrypted += decipher.final('utf8');
+            decipher.setAuthTag(Buffer.from(data[`${fieldName}_auth_tag`], 'hex'));
 
-        return decrypted;
+            let decrypted = decipher.update(data[fieldName], 'hex', 'utf8');
+            decrypted += decipher.final('utf8');
+
+            return decrypted;
+        } catch (error) {
+            console.error(`Error decrypting field ${fieldName}:`, error);
+            throw error;
+        }
     }
 
     // Encrypt object fields based on configuration
     async encryptObject(modelName, data) {
-        console.log("🚀 ~ EncryptionService ~ encryptObject ~ modelName, data:", modelName, data)
         const modelConfig = this.config.encryptedFields[modelName];
         if (!modelConfig) return data;
 
@@ -72,9 +102,7 @@ class EncryptionService {
             if (data[field]) {
                 try {
                     const dek = this.generateDEK(modelConfig.dekLength);
-                    console.log("🚀 ~ EncryptionService ~ encryptObject ~ dek:", dek)
-                    const fieldData = await this.encryptField(field, data[field], dek);
-                    console.log("🚀 ~ EncryptionService ~ encryptObject ~ fieldData:", fieldData)
+                    const fieldData = await this.encryptField(field, data[field], dek, data.id, modelName);
 
                     if (fieldData) {
                         // Merge the encrypted field data into the result
@@ -103,7 +131,6 @@ class EncryptionService {
             if (data[field]) {
                 try {
                     const decryptedValue = await this.decryptField(field, data);
-                    console.log("🚀 ~ EncryptionService ~ decryptObject ~ decryptedValue:", decryptedValue)
                     if (decryptedValue !== null) {
                         decryptedData[field] = decryptedValue;
                     }
@@ -115,12 +142,12 @@ class EncryptionService {
 
                 // Remove the encryption metadata fields
                 delete decryptedData[`${field}_iv`];
+                delete decryptedData[`${field}_secret_id`];
                 delete decryptedData[`${field}_dek`];
                 delete decryptedData[`${field}_auth_tag`];
             }
         }
 
-        console.log("🚀 ~ EncryptionService ~ decryptObject ~ decryptedData:", decryptedData)
         return decryptedData;
     }
 }

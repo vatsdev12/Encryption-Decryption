@@ -81,6 +81,22 @@ const User = sequelize.define('User', {
     isActive: {
         type: DataTypes.BOOLEAN,
         defaultValue: true
+    },
+    firstName_secret_id: {
+        type: DataTypes.TEXT,
+        allowNull: true
+    },
+    lastName_secret_id: {
+        type: DataTypes.TEXT,
+        allowNull: true
+    },
+    email_secret_id: {
+        type: DataTypes.TEXT,
+        allowNull: true
+    },
+    password_secret_id: {
+        type: DataTypes.TEXT,
+        allowNull: true
     }
 }, {
     timestamps: true,
@@ -105,8 +121,8 @@ const User = sequelize.define('User', {
                 Object.assign(result, decryptedData);
             }
         }
-        
-        
+
+
     }
 });
 
