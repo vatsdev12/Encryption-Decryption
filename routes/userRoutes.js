@@ -91,7 +91,7 @@ router.get('/users/search', async (req, res) => {
 
         console.log("Search filters:", whereClause);
 
-        // Find users with filters
+        // Find users with filters - remove raw: true to get Sequelize instances
         const users = await User.findAll({
             where: whereClause
         });
@@ -102,16 +102,10 @@ router.get('/users/search', async (req, res) => {
             });
         }
 
-        // Decrypt user data
-        const decryptedUsers = await Promise.all(
-            users.map(async (user) => {
-                return await encryptionService.decryptObject('User', user.toJSON());
-            })
-        );
-
+        // The decryption is handled by the model's afterFind hook
         res.json({
-            count: decryptedUsers.length,
-            users: decryptedUsers
+            count: users.length,
+            users: users
         });
     } catch (error) {
         console.error('Error searching users:', error);
