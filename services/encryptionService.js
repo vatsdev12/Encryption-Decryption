@@ -2,6 +2,9 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const kmsService = require('./kmsService');
+const secretManagerService = require('./secretManagerService');
+const UserKeyDetails = require('../models/UserKeyDetails');
+const createHash = require('../utils/createHash');
 
 class EncryptionService {
     constructor() {
@@ -25,13 +28,9 @@ class EncryptionService {
 
         const authTag = cipher.getAuthTag();
 
-        // Encrypt the DEK with KMS
-        const encryptedDEK = await kmsService.encryptDEK(dek, username);
-
         return {
             [`${fieldName}`]: encrypted,
             [`${fieldName}_iv`]: iv.toString('hex'),
-            [`${fieldName}_dek`]: Buffer.from(encryptedDEK.encryptedDEK).toString('base64'),
             [`${fieldName}_auth_tag`]: authTag.toString('hex')
         };
     }
@@ -39,12 +38,28 @@ class EncryptionService {
     // Decrypt a single field using its metadata
     async decryptField(fieldName, data) {
         if (!data[fieldName]) return null;
-        const username = data.username;
-        console.log("🚀 ~ EncryptionService ~ decryptField ~ username:", username)
-        // Decrypt the DEK using KMS
+
+        // Get the secretId from UserKeyDetails
+        const userKeyDetails = await UserKeyDetails.findOne({
+            where: { userId: data.id }
+        });
+        console.log("🚀 ~ EncryptionService ~ decryptField ~ userKeyDetails:", userKeyDetails)
+
+        if (!userKeyDetails) {
+            throw new Error('No key details found for user');
+        }
+
+        // Get the encrypted DEK from Secret Manager
+        const encryptedDEK = await secretManagerService.getSecret(userKeyDetails.dataValues.secretId);
+
+        // Decrypt the DEK using KMS with the keyMetadata
         const dek = await kmsService.decryptDEK({
-            encryptedDEKData: Buffer.from(data[`${fieldName}_dek`], 'base64'),
-            username: username
+            encryptedDEKData: encryptedDEK,
+            keyMetadata: {
+                locationId: userKeyDetails.dataValues.locationId,
+                keyRingId: userKeyDetails.dataValues.keyRingId,
+                keyId: userKeyDetails.dataValues.keyId
+            }
         });
 
         const decipher = crypto.createDecipheriv(
@@ -57,27 +72,30 @@ class EncryptionService {
 
         let decrypted = decipher.update(data[fieldName], 'hex', 'utf8');
         decrypted += decipher.final('utf8');
+        console.log("🚀 ~ EncryptionService ~ decryptField ~ decrypted:", decrypted)
 
         return decrypted;
     }
 
     // Encrypt object fields based on configuration
     async encryptObject(modelName, data) {
-        console.log("🚀 ~ EncryptionService ~ encryptObject ~ modelName, data:", modelName, data)
         const modelConfig = this.config.encryptedFields[modelName];
         if (!modelConfig) return data;
 
         const encryptedData = { ...data };
         const username = data.username;
-        // Encrypt each field separately
+
+        // create hash of the email
+        const emailHash = createHash(encryptedData.email);
+        encryptedData.email_hash = emailHash;
+
+        //DEK generated as per document
+        const dek = this.generateDEK(modelConfig.dekLength);
+        // Encrypt each field with same DEK
         for (const field of modelConfig.fields) {
             if (data[field]) {
                 try {
-                    const dek = this.generateDEK(modelConfig.dekLength);
-                    console.log("🚀 ~ EncryptionService ~ encryptObject ~ dek:", dek)
                     const fieldData = await this.encryptField(field, data[field], dek, username);
-                    console.log("🚀 ~ EncryptionService ~ encryptObject ~ fieldData:", fieldData)
-
                     if (fieldData) {
                         // Merge the encrypted field data into the result
                         Object.assign(encryptedData, fieldData);
@@ -90,11 +108,27 @@ class EncryptionService {
             }
         }
 
-        return encryptedData;
+        // Encrypt the DEK with KMS
+        const { encryptedDEK, locationId, keyRingId, keyId } = await kmsService.encryptDEK(dek, username);
+
+        // now save the encryptedDEK in gcp secret manager
+        const secretId = `secret-${username}-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+        await secretManagerService.createSecret(secretId, encryptedDEK);
+
+        return {
+            encryptedData,
+            keyMetadata: {
+                locationId,
+                keyRingId,
+                keyId,
+                secretId
+            }
+        };
     }
 
     // Decrypt object fields based on configuration
     async decryptObject(modelName, data) {
+        console.log("🚀 ~ EncryptionService ~ decryptObject ~ data:", data)
         const modelConfig = this.config.encryptedFields[modelName];
         if (!modelConfig) return data;
 
@@ -105,7 +139,6 @@ class EncryptionService {
             if (data[field]) {
                 try {
                     const decryptedValue = await this.decryptField(field, data);
-                    console.log("🚀 ~ EncryptionService ~ decryptObject ~ decryptedValue:", decryptedValue)
                     if (decryptedValue !== null) {
                         decryptedData[field] = decryptedValue;
                     }
@@ -124,6 +157,18 @@ class EncryptionService {
 
         console.log("🚀 ~ EncryptionService ~ decryptObject ~ decryptedData:", decryptedData)
         return decryptedData;
+    }
+
+    // New method to create UserKeyDetails after user creation
+    async createUserKeyDetails(userId, keyDetails) {
+        return await UserKeyDetails.create({
+            userId,
+            username: keyDetails.username,
+            locationId: keyDetails.locationId,
+            keyRingId: keyDetails.keyRingId,
+            keyId: keyDetails.keyId,
+            secretId: keyDetails.secretId
+        });
     }
 }
 

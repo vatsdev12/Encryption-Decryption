@@ -1,6 +1,7 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('../config/database');
 const encryptionService = require('../services/encryptionService');
+const UserKeyDetails = require('./UserKeyDetails');
 
 const User = sequelize.define('User', {
     id: {
@@ -27,6 +28,10 @@ const User = sequelize.define('User', {
         allowNull: true
     },
     email_auth_tag: {
+        type: DataTypes.TEXT,
+        allowNull: true
+    },
+    email_hash: {
         type: DataTypes.TEXT,
         allowNull: true
     },
@@ -87,12 +92,25 @@ const User = sequelize.define('User', {
     tableName: 'Users', // Explicitly set table name
     hooks: {
         beforeCreate: async (user) => {
-            const encryptedData = await encryptionService.encryptObject('User', user.dataValues);
+            const {encryptedData,keyMetadata} = await encryptionService.encryptObject('User', user.dataValues);
             Object.assign(user, encryptedData);
+            user._keyMetadata = keyMetadata
         },
         beforeUpdate: async (user) => {
             const encryptedData = await encryptionService.encryptObject('User', user.dataValues);
             Object.assign(user, encryptedData);
+        },
+        afterCreate: async (user) => {
+            const metadata = user._keyMetadata;
+            if (metadata) {
+                await UserKeyDetails.create({
+                    userId: user.id,
+                    locationId: metadata.locationId,
+                    keyRingId: metadata.keyRingId,
+                    keyId: metadata.keyId,
+                    secretId: metadata.secretId
+                });
+            }
         },
         afterFind: async (result) => {
             if (Array.isArray(result)) {
@@ -105,8 +123,6 @@ const User = sequelize.define('User', {
                 Object.assign(result, decryptedData);
             }
         }
-        
-        
     }
 });
 

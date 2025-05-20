@@ -3,6 +3,8 @@ const router = express.Router();
 const User = require('../models/User');
 const sequelize = require('../config/database');
 const { Op } = require('sequelize');
+const crypto = require('crypto');
+const encryptionService = require('../services/encryptionService');
 
 // Get all users
 router.get('/users', async (req, res) => {
@@ -60,6 +62,61 @@ router.post('/users', async (req, res) => {
     } catch (error) {
         res.status(500).json({
             message: 'Error creating user',
+            error: error.message
+        });
+    }
+});
+
+// Search users with filters
+router.get('/users/search', async (req, res) => {
+    try {
+        const filters = req.query;
+        const whereClause = {};
+
+        // Handle email search with hashing
+        if (filters.email) {
+            const emailHash = crypto.createHash('sha256')
+                .update(filters.email.toLowerCase())
+                .digest('hex');
+            whereClause.email_hash = emailHash;
+            delete filters.email; // Remove email from filters as we've handled it
+        }
+
+        // Handle other filters
+        Object.keys(filters).forEach(key => {
+            if (filters[key]) {
+                whereClause[key] = filters[key];
+            }
+        });
+
+        console.log("Search filters:", whereClause);
+
+        // Find users with filters
+        const users = await User.findAll({
+            where: whereClause
+        });
+
+        if (!users || users.length === 0) {
+            return res.status(404).json({
+                message: 'No users found matching the criteria'
+            });
+        }
+
+        // Decrypt user data
+        const decryptedUsers = await Promise.all(
+            users.map(async (user) => {
+                return await encryptionService.decryptObject('User', user.toJSON());
+            })
+        );
+
+        res.json({
+            count: decryptedUsers.length,
+            users: decryptedUsers
+        });
+    } catch (error) {
+        console.error('Error searching users:', error);
+        res.status(500).json({
+            message: 'Error searching users',
             error: error.message
         });
     }

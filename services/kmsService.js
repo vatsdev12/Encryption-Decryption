@@ -1,6 +1,5 @@
 const { KeyManagementServiceClient } = require('@google-cloud/kms').v1;
 const crypto = require('crypto');
-const userKeys = require('../config/Userkeys.json');
 
 class KMSService {
     constructor() {
@@ -22,47 +21,61 @@ class KMSService {
         }
     }
 
+    async createKeyRingAndKey(dek, username) {
+        const keyRingId = `kr-${username}-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+        const keyId = `key-${username}-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+
+        const locationName = this.client.locationPath(this.projectId, this.locationId);
+
+        // Create KeyRing
+        await this.client.createKeyRing({
+            parent: locationName,
+            keyRingId: keyRingId,
+            keyRing: {}
+        });
+
+        console.log(`✅ Created KeyRing: ${keyRingId}`);
+
+        // Create CryptoKey
+        const [key] = await this.client.createCryptoKey({
+            parent: this.client.keyRingPath(this.projectId, this.locationId, keyRingId),
+            cryptoKeyId: keyId,
+            cryptoKey: {
+                purpose: 'ENCRYPT_DECRYPT',
+                versionTemplate: {
+                    algorithm: 'GOOGLE_SYMMETRIC_ENCRYPTION',
+                },
+            }
+        });
+
+        console.log(`✅ Created CryptoKey: ${keyId}`);
+
+        const [encryptResponse] = await this.client.encrypt({
+            name: key.name,
+            plaintext: dek.toString('base64')
+        });
+
+        const encryptedDEK = encryptResponse.ciphertext;
+
+        return {
+            encryptedDEK,
+            locationId: this.locationId,
+            keyRingId: keyRingId,
+            keyId: keyId,
+            username: username
+        };
+    }
+
     async encryptDEK(dek, username) {
         try {
-            if (this.isDevelopment) {
-                // Local encryption for development
-
-                //get key details from userkeys.json
-              
-                const iv = crypto.randomBytes(16);
-                const cipher = crypto.createCipheriv('aes-256-gcm', this.localKey, iv);
-
-                let encryptedDEK = cipher.update(dek, 'binary', 'hex');
-                encryptedDEK += cipher.final('hex');
-
-                const authTag = cipher.getAuthTag();
-
-                return {
-                    encryptedDEK,
-                    dekIV: iv.toString('hex'),
-                    dekAuthTag: authTag.toString('hex')
-                };
-            }
-
-            // Production: use Google Cloud KMS
-             
-            const keyDetails = userKeys[username];
-            console.log("🚀 ~ KMSService ~ encryptDEK ~ keyDetails:", keyDetails)
-            const keyName = this.client.cryptoKeyPath(
-                this.projectId,
-                keyDetails.locationId,
-                keyDetails.keyRingId,
-                keyDetails.keyId
-            );
-            const [encryptResponse] = await this.client.encrypt({
-                name: keyName,
-                plaintext: dek.toString('base64')
-            });
+            //create a new locationId , keyRingId , keyId in the gcp kms
+            const { encryptedDEK, locationId, keyRingId, keyId } = await this.createKeyRingAndKey(dek, username);
 
             return {
-                encryptedDEK: encryptResponse.ciphertext,
-                dekIV: null,
-                dekAuthTag: null
+                encryptedDEK: encryptedDEK,
+                locationId: this.locationId,
+                keyRingId: keyRingId,
+                keyId: keyId,
             };
         } catch (error) {
             console.error('Error encrypting DEK:', error);
@@ -70,37 +83,15 @@ class KMSService {
         }
     }
 
-    async decryptDEK({encryptedDEKData, username}) {
-        console.log("🚀 ~ KMSService ~ decryptDEK ~ encryptedDEKData:", encryptedDEKData)
-        console.log("🚀 ~ KMSService ~ decryptDEK ~ username:", username)
-        // return;
+    async decryptDEK({ encryptedDEKData, keyMetadata }) {
         try {
-            if (this.isDevelopment) {
-                // Local decryption for development
-                const decipher = crypto.createDecipheriv(
-                    'aes-256-gcm',
-                    this.localKey,
-                    Buffer.from(encryptedDEKData.dekIV, 'hex')
-                );
-
-                decipher.setAuthTag(Buffer.from(encryptedDEKData.dekAuthTag, 'hex'));
-
-                let decryptedDEK = decipher.update(encryptedDEKData.encryptedDEK, 'hex', 'binary');
-                decryptedDEK += decipher.final('binary');
-
-                return Buffer.from(decryptedDEK, 'binary');
-            }
-            const keyDetails = userKeys[username];
-            console.log("🚀 ~ KMSService ~ decryptDEK ~ keyDetails:", keyDetails)
-
             const keyName = this.client.cryptoKeyPath(
                 this.projectId,
-                keyDetails.locationId,
-                keyDetails.keyRingId,
-                keyDetails.keyId
+                keyMetadata.locationId,
+                keyMetadata.keyRingId,
+                keyMetadata.keyId
             );
             // Production: use Google Cloud KMS
-            console.log("🚀 ~ KMSService ~ decryptDEK ~ keyName:", keyName);
             const [decryptResponse] = await this.client.decrypt({
                 name: keyName,
                 ciphertext: encryptedDEKData
