@@ -37,7 +37,7 @@ router.get('/users', async (req: Request, res: Response) => {
 // Add a new user
 router.post('/users', async (req: Request, res: Response) => {
     try {
-        const { username, email, password, firstName, lastName } = req.body as UserCreateData;
+        const { username, email, password, firstName, lastName, isActive } = req.body as UserCreateData;
 
         // Basic validation
         if (!username || !email || !password) {
@@ -57,12 +57,12 @@ router.post('/users', async (req: Request, res: Response) => {
             }
         });
 
-        if (existingUser) {
-            res.status(400).json({
-                message: 'Username or email already exists'
-            });
-            return;
-        }
+        // if (existingUser) {
+        //     res.status(400).json({
+        //         message: 'Username or email already exists'
+        //     });
+        //     return;
+        // }
 
         // Create new user - encryption is handled by hooks
         const user = await User.create({
@@ -71,11 +71,12 @@ router.post('/users', async (req: Request, res: Response) => {
             password,
             firstName,
             lastName,
-            isActive: true
+            isActive: isActive ?? true
         });
 
         res.status(201).json(user);
     } catch (error) {
+        console.error('Error creating user:', error);
         res.status(500).json({
             message: 'Error creating user',
             error: error instanceof Error ? error.message : 'Unknown error'
@@ -105,7 +106,7 @@ router.get('/users/search', async (req: Request, res: Response) => {
             }
         });
 
-        // Find users with filters - remove raw: true to get Sequelize instances
+        // Find users with filters
         const users = await User.findAll({
             where: whereClause
         });
@@ -117,7 +118,6 @@ router.get('/users/search', async (req: Request, res: Response) => {
             return;
         }
 
-        // The decryption is handled by the model's afterFind hook
         res.json({
             count: users.length,
             users: users

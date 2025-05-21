@@ -61,6 +61,7 @@ class User extends Model<UserAttributes, UserCreationAttributes> implements User
     public readonly createdAt!: Date;
     public readonly updatedAt!: Date;
     public _keyMetadata?: KeyMetadata;
+    public _isCached?: boolean;
 }
 
 User.init({
@@ -153,9 +154,19 @@ User.init({
     tableName: 'Users',
     hooks: {
         beforeCreate: async (user: User) => {
-            const { encryptedData, keyMetadata } = await encryptionService.encryptObject('User', user.dataValues);
+            //fetch UserKeyDetails from UserKeyDetails table for the user
+            const userKeyDetails = await UserKeyDetails.findOne({
+                where: {
+                    userId: user.id
+                }
+            });
+            
+            const { encryptedData, keyMetadata, isCached } = await encryptionService.encryptObject('User', user.dataValues, user.dataValues.username);
             Object.assign(user, encryptedData);
+            console.log("🚀 ~ beforeCreate: ~ user:", user)
+
             user._keyMetadata = keyMetadata;
+            user._isCached = isCached;
         },
         beforeUpdate: async (user: User) => {
             const { encryptedData } = await encryptionService.encryptObject('User', user.dataValues);
@@ -163,8 +174,10 @@ User.init({
         },
         afterCreate: async (user: User) => {
             const metadata = user._keyMetadata;
+            const isCached = user._isCached;
             console.log("🚀 ~ afterCreate: ~ metadata:", metadata)
-            if (metadata) {
+
+            if (metadata && !isCached) {
                 await UserKeyDetails.create({
                     userId: user.id,
                     locationId: metadata.locationId,
@@ -175,15 +188,15 @@ User.init({
             }
         },
         afterFind: async (result: User | User[] | null) => {
-            if (Array.isArray(result)) {
-                for (const user of result) {
-                    const decryptedData = await encryptionService.decryptObject('User', user.dataValues);
-                    Object.assign(user, decryptedData);
-                }
-            } else if (result) {
-                const decryptedData = await encryptionService.decryptObject('User', result.dataValues);
-                Object.assign(result, decryptedData);
-            }
+            // if (Array.isArray(result)) {
+            //     for (const user of result) {
+            //         const decryptedData = await encryptionService.decryptObject('User', user.dataValues);
+            //         Object.assign(user, decryptedData);
+            //     }
+            // } else if (result) {
+            //     const decryptedData = await encryptionService.decryptObject('User', result.dataValues);
+            //     Object.assign(result, decryptedData);
+            // }
         }
     }
 });

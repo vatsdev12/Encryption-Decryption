@@ -1,8 +1,18 @@
 {
     "encryptedFields": {
         "User": {
-            "fields": ["password", "email", "firstName", "lastName"],
-            "dekLength": 32
+           "Encrypt":[
+            {"key" :"email" , "shouldHash":true},
+            {"key" :"password" , "shouldHash":false},
+            {"key" :"firstName" , "shouldHash":false},
+            {"key" :"lastName" , "shouldHash":false}
+           ],
+           "Decrypt":[
+            {"key" :"email" , "shouldHash":true},
+            {"key" :"password" , "shouldHash":true},
+            {"key" :"firstName" , "shouldHash":false},
+            {"key" :"lastName" , "shouldHash":false}
+           ]
         }
     }
 } 

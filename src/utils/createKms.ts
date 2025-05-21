@@ -1,6 +1,6 @@
-const createKms = (username: string) => {
-    const keyRingId = `kr-${username}`;
-    const keyId = `key-${username}`;
+const createKms = (keyName: string) => {
+    const keyRingId = `kr-${keyName}`;
+    const keyId = `key-${keyName}`;
     return { keyRingId, keyId };
 }
 

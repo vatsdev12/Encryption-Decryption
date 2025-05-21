@@ -33,9 +33,9 @@ class KMSService {
     }
 
 
-    async createKeyRingAndKey(dek: Buffer, username: string): Promise<EncryptDEKResult> {
+    async createKeyRingAndKey(dek: Buffer, kmsKeyName?: string): Promise<EncryptDEKResult> {
         console.log('CREATING KEY RING AND KEY')
-        const { keyRingId, keyId } = createKms(username);
+        const { keyRingId, keyId } = createKms(kmsKeyName || Math.random().toString(36).substring(2, 15));
 
         const locationName = this.client.locationPath(this.projectId, this.locationId);
 
@@ -76,10 +76,10 @@ class KMSService {
         };
     }
 
-    async encryptDEK(dek: Buffer, username: string): Promise<EncryptDEKResult> {
+    async encryptDEK(dek: Buffer, kmsKeyName?: string): Promise<EncryptDEKResult> {
         try {
             //create a new locationId , keyRingId , keyId in the gcp kms
-            const { encryptedDEK, locationId, keyRingId, keyId } = await this.createKeyRingAndKey(dek, username);
+            const { encryptedDEK, locationId, keyRingId, keyId } = await this.createKeyRingAndKey(dek, kmsKeyName);
 
             return {
                 encryptedDEK,

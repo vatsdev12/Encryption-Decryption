@@ -1,21 +1,25 @@
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
-
+import cacheService from './cacheService';
 interface SecretVersion {
     secretName: string;
     versionName: string;
 }
 
+interface SecretData {
+    encryptedDEK: Buffer;
+    locationId: string;
+    keyRingId: string;
+    keyId: string;
+}
+
 class SecretManagerService {
     private secretManager: SecretManagerServiceClient;
-    private cache: Map<string, Buffer>;
 
     constructor() {
         this.secretManager = new SecretManagerServiceClient();
-        // Initialize cache
-        this.cache = new Map();
     }
 
-    async createSecret(secretId: string, encryptedDEK: Buffer): Promise<SecretVersion> {
+    async createSecret(secretId: string, secretData: SecretData): Promise<SecretVersion> {
         try {
             // Create the secret
             const [secret] = await this.secretManager.createSecret({
@@ -34,14 +38,14 @@ class SecretManagerService {
             const [version] = await this.secretManager.addSecretVersion({
                 parent: secret.name,
                 payload: {
-                    data: encryptedDEK,
+                    data: secretData.encryptedDEK,
                 },
             });
             console.log("🚀 ~ SecretManagerService ~ createSecret ~ version:", version)
 
             // Cache the encrypted DEK
-            this.cache.set(secretId, encryptedDEK);
-            console.log("ENCRYPTED DEK>>>>>>>>>>>>", encryptedDEK.toString('base64'), "<<<<<<<<<<<<<<<<ENCRYPTED DEK")
+            cacheService.set(secretId, secretData);
+            console.log("ENCRYPTED DEK>>>>>>>>>>>>", secretData.encryptedDEK.toString('base64'), "<<<<<<<<<<<<<<<<ENCRYPTED DEK")
             return {
                 secretName: secret.name || '',
                 versionName: version.name || ''
@@ -73,7 +77,7 @@ class SecretManagerService {
                 throw new Error(`No payload data found in secret version for ${secretName}`);
             }
             const encryptedDEKBuffer = Buffer.from(encryptedDEK);
-            this.cache.set(secretName, encryptedDEKBuffer);
+            cacheService.set(secretName, encryptedDEKBuffer);
 
             return encryptedDEKBuffer;
         } catch (error) {
@@ -84,12 +88,12 @@ class SecretManagerService {
 
     // Method to clear cache if needed
     clearCache(): void {
-        this.cache.clear();
+        cacheService.clear();
     }
 
     // Method to remove specific secret from cache
     removeFromCache(secretName: string): void {
-        this.cache.delete(secretName);
+        cacheService.delete(secretName);
     }
 }
 
