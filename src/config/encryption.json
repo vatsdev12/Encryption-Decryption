@@ -1,0 +1,8 @@
+{
+    "encryptedFields": {
+        "User": {
+            "fields": ["password", "email", "firstName", "lastName"],
+            "dekLength": 32
+        }
+    }
+} 
