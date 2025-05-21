@@ -62,26 +62,16 @@ class EncryptionService {
         };
     }
 
-    
-
-    // Decrypt a single field using its metadata
-    async decryptField(fieldName: string, data: any): Promise<string | null> {
-        console.log('DECRYPTING THE FIELD ', fieldName)
-        if (!data[fieldName]) return null;
-
-        // Get the secretId from UserKeyDetails
+    async getKeyDetails(userId: number): Promise<Buffer> {
+        console.log('FETCHING THE USER KEY DETAILS')
         const userKeyDetails = await UserKeyDetails.findOne({
-            where: { userId: data.id }
+            where: { userId }
         });
-        console.log('FETCHED THE USER KEY DETAILS')
         if (!userKeyDetails) {
             throw new Error('No key details found for user');
         }
-
-        // Get the encrypted DEK from Secret Manager
         const encryptedDEK = await secretManagerService.getSecret(userKeyDetails.dataValues.secretId);
-        console.log('FETCHED THE ENCRYPTED DEK')
-        // Decrypt the DEK using KMS with the keyMetadata
+
         const dek = await kmsService.decryptDEK({
             encryptedDEKData: encryptedDEK,
             keyMetadata: {
@@ -91,8 +81,14 @@ class EncryptionService {
             }
         });
         console.log('DECRYPTED THE DEK')
+        return dek;
+    }
+
+    // Decrypt a single field using its metadata
+    async decryptField(fieldName: string, data: any, dek: Buffer): Promise<string | null> {
         console.log('DECRYPTING THE FIELD ', fieldName)
-        console.log(typeof dek, "TYPE OF DEK")
+        if (!data[fieldName]) return null;
+
         const decipher = crypto.createDecipheriv(
             'aes-256-gcm',
             dek,
@@ -165,12 +161,15 @@ class EncryptionService {
         console.log('FETCHED THE FIELDS TO DECRYPT')
         const decryptedData = { ...data };
 
+        // Get the secretId from UserKeyDetails
+        const dek = await this.getKeyDetails(data.id);
+
         // Decrypt each field separately
         console.log('DECRYPTING THE FIELDs STARTED')
         for (const field of modelConfig.fields) {
             if (data[field]) {
                 try {
-                    const decryptedValue = await this.decryptField(field, data);
+                    const decryptedValue = await this.decryptField(field, data, dek);
                     if (decryptedValue !== null) {
                         decryptedData[field] = decryptedValue;
                     }
