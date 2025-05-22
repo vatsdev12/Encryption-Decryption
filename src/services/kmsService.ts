@@ -5,7 +5,7 @@ import createKms from '../utils/createKms';
 /**
  * Metadata required for KMS key operations
  */
-interface KeyMetadata {
+export interface KeyMetadata {
     locationId: string;
     keyRingId: string;
     keyId: string;

@@ -1,10 +1,9 @@
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
-import cacheService from './cacheService';
 
 /**
  * Represents a secret version in Google Cloud Secret Manager
  */
-interface SecretVersion {
+export interface SecretVersion {
     secretName: string;
     versionName: string;
 }
@@ -12,7 +11,7 @@ interface SecretVersion {
 /**
  * Data structure for storing encrypted DEK and its metadata
  */
-interface SecretData {
+export interface SecretData {
     encryptedDEK: Buffer;
     locationId: string;
     keyRingId: string;

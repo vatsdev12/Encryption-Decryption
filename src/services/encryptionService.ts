@@ -49,7 +49,7 @@ class EncryptionService {
         const authTag = cipher.getAuthTag();
 
         return {
-            [fieldName]: encrypted,
+            [`${fieldName}_encrypted`]: encrypted,
             [`${fieldName}_iv`]: iv.toString('hex'),
             [`${fieldName}_auth_tag`]: authTag.toString('hex')
         };
@@ -63,20 +63,26 @@ class EncryptionService {
      * @returns Decrypted value or null if field doesn't exist
      */
     async decryptField(fieldName: string, data: any, dek: Buffer): Promise<string | null> {
-        if (!data[fieldName]) return null;
+        const encryptedFieldName = `${fieldName}_encrypted`;
+        if (!data[encryptedFieldName]) return null;
 
-        const decipher = crypto.createDecipheriv(
-            'aes-256-gcm',
-            dek,
-            Buffer.from(data[`${fieldName}_iv`], 'hex')
-        );
+        try {
+            const decipher = crypto.createDecipheriv(
+                'aes-256-gcm',
+                dek,
+                Buffer.from(data[`${fieldName}_iv`], 'hex')
+            );
 
-        decipher.setAuthTag(Buffer.from(data[`${fieldName}_auth_tag`], 'hex'));
+            decipher.setAuthTag(Buffer.from(data[`${fieldName}_auth_tag`], 'hex'));
 
-        let decrypted = decipher.update(data[fieldName], 'hex', 'utf8');
-        decrypted += decipher.final('utf8');
+            let decrypted = decipher.update(data[encryptedFieldName], 'hex', 'utf8');
+            decrypted += decipher.final('utf8');
 
-        return decrypted;
+            return decrypted;
+        } catch (error) {
+            console.error(`Error decrypting field ${fieldName}:`, error);
+            return data[fieldName] || null; // Fallback to original field if decryption fails
+        }
     }
 
     /**
@@ -225,15 +231,19 @@ class EncryptionService {
                 encryptedDEK = metadata.encryptedDEK || undefined;
 
                 for (const field of modelConfig.Decrypt) {
-                    if (data[field.key]) {
+                    const encryptedFieldName = `${field.key}_encrypted`;
+                    if (data[encryptedFieldName]) {
                         try {
                             const decryptedValue = await this.decryptField(field.key, data, dek);
                             if (decryptedValue !== null) {
-                                decryptedData[field.key] = decryptedValue;
+                                decryptedData[encryptedFieldName] = decryptedValue;
+                                delete decryptedData[`${field.key}_iv`];
+                                delete decryptedData[`${field.key}_auth_tag`];
                             }
                         } catch (error) {
                             console.error(`Error decrypting field ${field.key}:`, error);
-                            decryptedData[field.key] = data[field.key];
+                            // Keep original field if decryption fails
+                            decryptedData[encryptedFieldName] = data[field.key];
                         }
                     }
                 }
