@@ -30,7 +30,7 @@ export interface EncryptedObjectResult {
     keyMetadata: KeyMetadata;
 }
 
-export interface UserKeyDetails {
+export interface EntityKeyDetails {
     locationId: string | null;
     keyRingId: string | null;
     keyId: string | null;
@@ -38,8 +38,8 @@ export interface UserKeyDetails {
     encryptedDEK?: Buffer | null;
 }
 
-export interface UserKeyDetailsResult {
-    userKeyDetails: UserKeyDetails;
+export interface EntityKeyDetailsResult {
+    keyDetails: EntityKeyDetails;
     isCached: boolean;
-    isUserKeyDetails: boolean;
+    isEntityKeyDetails: boolean;
 }

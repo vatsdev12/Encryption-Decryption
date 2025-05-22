@@ -52,11 +52,11 @@ class KMSService {
     /**
      * Creates a new key ring and key in Google Cloud KMS
      * @param dek - Data Encryption Key to encrypt
-     * @param kmsKeyName - Optional name for the KMS key
+     * @param clientName - Optional name for the KMS key
      * @returns Promise resolving to encryption result with metadata
      */
-    private async createKeyRingAndKey(dek: Buffer, kmsKeyName?: string): Promise<EncryptDEKResult> {
-        const { keyRingId, keyId } = createKms(kmsKeyName || crypto.randomBytes(16).toString('hex'));
+    private async createKeyRingAndKey(dek: Buffer, clientName?: string): Promise<EncryptDEKResult> {
+        const { keyRingId, keyId } = createKms(clientName || crypto.randomBytes(16).toString('hex'));
 
         try {
             // Create KeyRing
@@ -98,12 +98,12 @@ class KMSService {
     /**
      * Encrypts a Data Encryption Key (DEK) using Google Cloud KMS
      * @param dek - Data Encryption Key to encrypt
-     * @param kmsKeyName - Optional name for the KMS key
+     * @param clientName - Optional name for the KMS key
      * @returns Promise resolving to encryption result with metadata
      */
-    async encryptDEK(dek: Buffer, kmsKeyName?: string): Promise<EncryptDEKResult> {
+    async encryptDEK(dek: Buffer, clientName?: string): Promise<EncryptDEKResult> {
         try {
-            return await this.createKeyRingAndKey(dek, kmsKeyName);
+            return await this.createKeyRingAndKey(dek, clientName);
         } catch (error) {
             throw new Error(`Failed to encrypt DEK: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
