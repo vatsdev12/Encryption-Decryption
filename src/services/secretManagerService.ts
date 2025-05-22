@@ -1,10 +1,17 @@
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
 import cacheService from './cacheService';
+
+/**
+ * Represents a secret version in Google Cloud Secret Manager
+ */
 interface SecretVersion {
     secretName: string;
     versionName: string;
 }
 
+/**
+ * Data structure for storing encrypted DEK and its metadata
+ */
 interface SecretData {
     encryptedDEK: Buffer;
     locationId: string;
@@ -12,80 +19,91 @@ interface SecretData {
     keyId: string;
 }
 
+/**
+ * Service for managing secrets in Google Cloud Secret Manager
+ */
 class SecretManagerService {
-    private secretManager: SecretManagerServiceClient;
+    private readonly secretManager: SecretManagerServiceClient;
+    private readonly projectId: string;
 
     constructor() {
         this.secretManager = new SecretManagerServiceClient();
+        this.projectId = process.env.GOOGLE_CLOUD_PROJECT || '';
+
+        if (!this.projectId) {
+            throw new Error('GOOGLE_CLOUD_PROJECT environment variable is required');
+        }
     }
 
+    /**
+     * Creates a new secret and adds the encrypted DEK as a version
+     * @param secretId - Unique identifier for the secret
+     * @param secretData - Data to be stored in the secret
+     * @returns Promise resolving to the created secret version
+     */
     async createSecret(secretId: string, secretData: SecretData): Promise<SecretVersion> {
         try {
+            const parent = `projects/${this.projectId}`;
+
             // Create the secret
             const [secret] = await this.secretManager.createSecret({
-                parent: `projects/${process.env.GOOGLE_CLOUD_PROJECT}`,
-                secretId: secretId,
+                parent,
+                secretId,
                 secret: {
                     replication: {
                         automatic: {},
                     },
                 },
             });
-            console.log("🚀 ~ SecretManagerService ~ createSecret ~ secret:", secret)
+
+            if (!secret.name) {
+                throw new Error('Failed to create secret: No name returned');
+            }
 
             // Add the encrypted DEK as a version
-
             const [version] = await this.secretManager.addSecretVersion({
                 parent: secret.name,
                 payload: {
                     data: secretData.encryptedDEK,
                 },
             });
-            console.log("🚀 ~ SecretManagerService ~ createSecret ~ version:", version)
 
-            // Cache the encrypted DEK
-            // cacheService.set(secretId, secretData);
-            // console.log("ENCRYPTED DEK>>>>>>>>>>>>", secretData.encryptedDEK.toString('base64'), "<<<<<<<<<<<<<<<<ENCRYPTED DEK")
+            if (!version.name) {
+                throw new Error('Failed to create secret version: No name returned');
+            }
+
             return {
-                secretName: secret.name || '',
-                versionName: version.name || ''
+                secretName: secret.name,
+                versionName: version.name
             };
         } catch (error) {
-            console.error('Error creating secret:', error);
-            throw error;
+            throw new Error(`Failed to create secret: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
     }
 
+    /**
+     * Retrieves the latest version of a secret
+     * @param secretName - Name of the secret to retrieve
+     * @returns Promise resolving to the secret data as a Buffer
+     */
     async getSecret(secretName: string): Promise<Buffer> {
         try {
-            // Check if secret is in cache
-            // if (this.cache.has(secretName)) {
-            //     return this.cache.get(secretName)!;
-            // }
-            console.log('SECRET KEY NOT FOUND IN CACHE')
-            const secretVersionName = `projects/${process.env.GOOGLE_CLOUD_PROJECT}/secrets/${secretName}/versions/latest`;
+            const secretVersionName = `projects/${this.projectId}/secrets/${secretName}/versions/latest`;
 
             const [version] = await this.secretManager.accessSecretVersion({
                 name: secretVersionName,
             });
+
             const encryptedDEK = version.payload?.data;
-            console.log("ENCRYPTED DEK>>>>>>>>>>>>", encryptedDEK ? Buffer.from(encryptedDEK).toString('base64') : 'undefined', "<<<<<<<<<<<<<<<<ENCRYPTED DEK")
-            console.log('RETRIEVED SECRET KEY')
-            // Cache the encrypted DEK
-            console.log('CACHED SECRET KEY')
             if (!encryptedDEK) {
                 throw new Error(`No payload data found in secret version for ${secretName}`);
             }
-            const encryptedDEKBuffer = Buffer.from(encryptedDEK);
-            // cacheService.set(secretName, encryptedDEKBuffer);
 
-            return encryptedDEKBuffer;
+            return Buffer.from(encryptedDEK);
         } catch (error) {
-            console.error('Error accessing secret:', error);
-            throw error;
+            throw new Error(`Failed to access secret: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
     }
-
 }
 
 export default new SecretManagerService(); 

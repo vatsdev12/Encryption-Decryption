@@ -1,43 +1,10 @@
-import { Model, DataTypes, Optional } from 'sequelize';
+import { Model, DataTypes } from 'sequelize';
 import sequelize from '../config/database';
 import encryptionService from '../services/encryptionService';
 import UserKeyDetails from './UserKeyDetails';
 import { checkKMS } from '../utils/checkkms';
 import cacheService from '../services/cacheService';
-
-interface UserAttributes {
-    id: number;
-    username: string;
-    email: string;
-    email_iv?: string;
-    email_dek?: string;
-    email_auth_tag?: string;
-    email_hash?: string;
-    password: string;
-    password_iv?: string;
-    password_dek?: string;
-    password_auth_tag?: string;
-    firstName?: string;
-    firstName_iv?: string;
-    firstName_dek?: string;
-    firstName_auth_tag?: string;
-    lastName?: string;
-    lastName_iv?: string;
-    lastName_dek?: string;
-    lastName_auth_tag?: string;
-    isActive: boolean;
-    createdAt?: Date;
-    updatedAt?: Date;
-}
-
-interface UserCreationAttributes extends Optional<UserAttributes, 'id'> { }
-
-interface KeyMetadata {
-    locationId: string;
-    keyRingId: string;
-    keyId: string;
-    secretId: string;
-}
+import { UserAttributes, UserCreationAttributes, KeyMetadata } from '../types/encryption';
 
 class User extends Model<UserAttributes, UserCreationAttributes> implements UserAttributes {
     public id!: number;
@@ -219,8 +186,8 @@ User.init({
                     Object.assign(user, decryptedData);
                 }
             } else if (result) {
-                // const decryptedData = await encryptionService.decryptObject('User', result.dataValues);
-                // Object.assign(result, decryptedData);
+                const decryptedData = await encryptionService.decryptObject('User', result.dataValues);
+                Object.assign(result, decryptedData);
             }
         }
     }
