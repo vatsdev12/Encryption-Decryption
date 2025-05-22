@@ -2,6 +2,8 @@ import { Model, DataTypes, Optional } from 'sequelize';
 import sequelize from '../config/database';
 import encryptionService from '../services/encryptionService';
 import UserKeyDetails from './UserKeyDetails';
+import { checkKMS } from '../utils/checkkms';
+import cacheService from '../services/cacheService';
 
 interface UserAttributes {
     id: number;
@@ -155,18 +157,18 @@ User.init({
     hooks: {
         beforeCreate: async (user: User) => {
             //fetch UserKeyDetails from UserKeyDetails table for the user
-            const userKeyDetails = await UserKeyDetails.findOne({
-                where: {
-                    userId: user.id
-                }
-            });
-            
-            const { encryptedData, keyMetadata, isCached } = await encryptionService.encryptObject('User', user.dataValues, user.dataValues.username);
+            const userKeyDetails = await checkKMS(user.dataValues.username, 22);
+
+            const { encryptedData, keyMetadata } = await encryptionService.encryptObject('User', user.dataValues, user.dataValues.username, userKeyDetails);
             Object.assign(user, encryptedData);
-            console.log("🚀 ~ beforeCreate: ~ user:", user)
+
+            //cache the keyMetadata
+            const secretId = `secret-${user.dataValues.username}`;
+            cacheService.set(secretId, keyMetadata);
+            //check if cache is set
+            const cachedData = cacheService.get(secretId);
 
             user._keyMetadata = keyMetadata;
-            user._isCached = isCached;
         },
         beforeUpdate: async (user: User) => {
             const { encryptedData } = await encryptionService.encryptObject('User', user.dataValues);
@@ -174,10 +176,9 @@ User.init({
         },
         afterCreate: async (user: User) => {
             const metadata = user._keyMetadata;
-            const isCached = user._isCached;
             console.log("🚀 ~ afterCreate: ~ metadata:", metadata)
 
-            if (metadata && !isCached) {
+            if (metadata) {
                 await UserKeyDetails.create({
                     userId: user.id,
                     locationId: metadata.locationId,
@@ -188,15 +189,39 @@ User.init({
             }
         },
         afterFind: async (result: User | User[] | null) => {
-            // if (Array.isArray(result)) {
-            //     for (const user of result) {
-            //         const decryptedData = await encryptionService.decryptObject('User', user.dataValues);
-            //         Object.assign(user, decryptedData);
-            //     }
-            // } else if (result) {
-            //     const decryptedData = await encryptionService.decryptObject('User', result.dataValues);
-            //     Object.assign(result, decryptedData);
-            // }
+            if (Array.isArray(result)) {
+                for (const user of result) {
+                    //fetch UserKeyDetails from UserKeyDetails table for the user
+                    const userKeyDetail = await checkKMS(user.dataValues.username, user.dataValues.id);
+
+                    const { decryptedData, encryptedDEK } = await encryptionService.decryptObject('User', user.dataValues, userKeyDetail);
+
+                    console.log("🚀 ~ afterFind: ~ encryptedDEK:", encryptedDEK)
+                    //cache the encryptedDEK
+                    //if encryptedDEK has value then only update the value of encryptedDEK in the cache otherwise cache the userKeyDetails
+
+                    if (encryptedDEK) {
+                        const userKeyDetails = { ...userKeyDetail.userKeyDetails, encryptedDEK };
+                        const secretId = `secret-${user.dataValues.username}`;
+                        cacheService.set(secretId, userKeyDetails);
+                        //check if cache is set
+                        const cachedData = cacheService.get(secretId);
+                        console.log("🚀 ~ afterFind: ~ cachedData:", cachedData)
+                    }
+                    else {
+                        const secretId = `secret-${user.dataValues.username}`;
+                        cacheService.set(secretId, userKeyDetail.userKeyDetails);
+                        //check if cache is set
+                        const cachedData = cacheService.get(secretId);
+                        console.log("🚀 ~ afterFind: ~ cachedData:", cachedData)
+                    }
+
+                    Object.assign(user, decryptedData);
+                }
+            } else if (result) {
+                // const decryptedData = await encryptionService.decryptObject('User', result.dataValues);
+                // Object.assign(result, decryptedData);
+            }
         }
     }
 });

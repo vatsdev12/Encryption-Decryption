@@ -44,8 +44,8 @@ class SecretManagerService {
             console.log("🚀 ~ SecretManagerService ~ createSecret ~ version:", version)
 
             // Cache the encrypted DEK
-            cacheService.set(secretId, secretData);
-            console.log("ENCRYPTED DEK>>>>>>>>>>>>", secretData.encryptedDEK.toString('base64'), "<<<<<<<<<<<<<<<<ENCRYPTED DEK")
+            // cacheService.set(secretId, secretData);
+            // console.log("ENCRYPTED DEK>>>>>>>>>>>>", secretData.encryptedDEK.toString('base64'), "<<<<<<<<<<<<<<<<ENCRYPTED DEK")
             return {
                 secretName: secret.name || '',
                 versionName: version.name || ''
@@ -77,7 +77,7 @@ class SecretManagerService {
                 throw new Error(`No payload data found in secret version for ${secretName}`);
             }
             const encryptedDEKBuffer = Buffer.from(encryptedDEK);
-            cacheService.set(secretName, encryptedDEKBuffer);
+            // cacheService.set(secretName, encryptedDEKBuffer);
 
             return encryptedDEKBuffer;
         } catch (error) {
@@ -86,15 +86,6 @@ class SecretManagerService {
         }
     }
 
-    // Method to clear cache if needed
-    clearCache(): void {
-        cacheService.clear();
-    }
-
-    // Method to remove specific secret from cache
-    removeFromCache(secretName: string): void {
-        cacheService.delete(secretName);
-    }
 }
 
 export default new SecretManagerService(); 

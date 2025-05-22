@@ -3,9 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import kmsService from './kmsService';
 import secretManagerService from './secretManagerService';
-import UserKeyDetails from '../models/UserKeyDetails';
 import createHash from '../utils/createHash';
-import cacheService from './cacheService';
 
 interface EncryptionConfig {
     encryptedFields: {
@@ -27,6 +25,7 @@ interface KeyMetadata {
     keyRingId: string;
     keyId: string;
     secretId: string;
+    encryptedDEK?: Buffer | null;
 }
 
 interface EncryptedFieldData {
@@ -36,7 +35,20 @@ interface EncryptedFieldData {
 interface EncryptedObjectResult {
     encryptedData: any;
     keyMetadata: KeyMetadata;
+}
+
+interface UserKeyDetails {
+    locationId: string | null;
+    keyRingId: string | null;
+    keyId: string | null;
+    secretId: string | null;
+    encryptedDEK?: Buffer | null;
+}
+
+interface UserKeyDetailsResult {
+    userKeyDetails: UserKeyDetails;
     isCached: boolean;
+    isUserKeyDetails: boolean;
 }
 
 class EncryptionService {
@@ -71,27 +83,22 @@ class EncryptionService {
         };
     }
 
-    async getKeyDetails(userId: number): Promise<Buffer> {
-        console.log('FETCHING THE USER KEY DETAILS')
-        const userKeyDetails = await UserKeyDetails.findOne({
-            where: { userId }
-        });
-        if (!userKeyDetails) {
-            throw new Error('No key details found for user');
-        }
-        const encryptedDEK = await secretManagerService.getSecret(userKeyDetails.dataValues.secretId);
+    // async getKeyDetails(userId: number): Promise<Buffer> {
+    //     console.log('FETCHING THE USER KEY DETAILS')
 
-        const dek = await kmsService.decryptDEK({
-            encryptedDEKData: encryptedDEK,
-            keyMetadata: {
-                locationId: userKeyDetails.dataValues.locationId,
-                keyRingId: userKeyDetails.dataValues.keyRingId,
-                keyId: userKeyDetails.dataValues.keyId
-            }
-        });
-        console.log('DECRYPTED THE DEK')
-        return dek;
-    }
+    //     const encryptedDEK = await secretManagerService.getSecret(userKeyDetails.dataValues.secretId);
+
+    //     const dek = await kmsService.decryptDEK({
+    //         encryptedDEKData: encryptedDEK,
+    //         keyMetadata: {
+    //             locationId: userKeyDetails.dataValues.locationId,
+    //             keyRingId: userKeyDetails.dataValues.keyRingId,
+    //             keyId: userKeyDetails.dataValues.keyId
+    //         }
+    //     });
+    //     console.log('DECRYPTED THE DEK')
+    //     return dek;
+    // }
 
     // Decrypt a single field using its metadata
     async decryptField(fieldName: string, data: any, dek: Buffer): Promise<string | null> {
@@ -113,79 +120,159 @@ class EncryptionService {
     }
 
     // Encrypt object fields based on configuration
-    async encryptObject(modelName: string, data: any, kmsKeyName?: string): Promise<EncryptedObjectResult> {
-        console.log("🚀 ~ EncryptionService ~ encryptObject ~ data:", data)
+    async encryptObject(modelName: string, data: any, kmsKeyName?: string, userKeyDetailsResult?: UserKeyDetailsResult): Promise<EncryptedObjectResult> {
         //Fetch the config for the model
 
         const modelConfig = this.config.encryptedFields[modelName];
-        if (!modelConfig) return { encryptedData: data, keyMetadata: {} as KeyMetadata, isCached: false };
+        if (!modelConfig) return { encryptedData: data, keyMetadata: {} as KeyMetadata };
 
         const encryptedData = { ...data };
         console.log('FETCHED THE FIELDS TO ENCRYPT')
         const secretId = `secret-${kmsKeyName}`;
-        // Check if the data is already cached  
 
-        let cachedEncryptedDek = null;
-        let cachedLocationId = null;
-        let cachedKeyRingId = null;
-        let cachedKeyId = null;
-        const cachedData = cacheService.get(secretId);
-        console.log("🚀 ~ EncryptionService ~ encryptObject ~ cachedData:", cachedData)
-        if (cachedData) {
-            cachedEncryptedDek = cachedData.encryptedDEK;
-            cachedLocationId = cachedData.locationId;
-            cachedKeyRingId = cachedData.keyRingId;
-            cachedKeyId = cachedData.keyId;
-        }
+        const isUserKeyDetails = userKeyDetailsResult?.isUserKeyDetails;
+        const isCached = userKeyDetailsResult?.isCached;
+        const userKeyDetails = userKeyDetailsResult?.userKeyDetails;
 
-        if (cachedEncryptedDek && cachedLocationId && cachedKeyRingId && cachedKeyId) {
-            // decrypt the dek
-            const dek = await kmsService.decryptDEK({
-                encryptedDEKData: cachedEncryptedDek,
-                keyMetadata: {
-                    locationId: cachedLocationId,
-                    keyRingId: cachedKeyRingId,
-                    keyId: cachedKeyId
-                }
-            });
-            console.log('DECRYPTED THE DEK')
-
-            // encrypt the data
-            console.log('ENCRYPTING THE FIELDs STARTED CACHED')
-            for (const field of modelConfig.Encrypt) {
-                if (data[field.key]) {
-                    try {
-                        const fieldData = await this.encryptField(field.key, data[field.key], dek);
-                        //hash the field if shouldHash is true
-                        if (field.shouldHash) {
-                            const hash = createHash(data[field.key]);
-                            encryptedData[`${field.key}_hash`] = hash;
+        if (isCached && userKeyDetails) {
+            //check if userKeyDetails has all the fields
+            if (userKeyDetails.locationId && userKeyDetails.keyRingId && userKeyDetails.keyId && userKeyDetails.secretId && userKeyDetails.encryptedDEK) {
+                //DEK generated as per document
+                const dek = await kmsService.decryptDEK({
+                    encryptedDEKData: userKeyDetails.encryptedDEK,
+                    keyMetadata: {
+                        locationId: userKeyDetails.locationId,
+                        keyRingId: userKeyDetails.keyRingId,
+                        keyId: userKeyDetails.keyId
+                    }
+                });
+                console.log('DECRYPTED THE DEK')
+                // encrypt the data
+                console.log('ENCRYPTING THE FIELDs STARTED CACHED')
+                for (const field of modelConfig.Encrypt) {
+                    if (data[field.key]) {
+                        try {
+                            const fieldData = await this.encryptField(field.key, data[field.key], dek);
+                            //hash the field if shouldHash is true
+                            if (field.shouldHash) {
+                                const hash = createHash(data[field.key]);
+                                encryptedData[`${field.key}_hash`] = hash;
+                            }
+                            if (fieldData) {
+                                // Merge the encrypted field data into the result
+                                Object.assign(encryptedData, fieldData);
+                            }
+                        } catch (error) {
+                            console.error(`Error encrypting field ${field.key}:`, error);
+                            // Keep the original value if encryption fails
+                            encryptedData[field.key] = data[field.key];
                         }
-                        if (fieldData) {
-                            // Merge the encrypted field data into the result
-                            Object.assign(encryptedData, fieldData);
-                        }
-                    } catch (error) {
-                        console.error(`Error encrypting field ${field.key}:`, error);
-                        // Keep the original value if encryption fails
-                        encryptedData[field.key] = data[field.key];
                     }
                 }
+                console.log('ENCRYPTED THE FIELDs ENDED CACHED')
+                return {
+                    encryptedData,
+                    keyMetadata: {
+                        locationId: userKeyDetails.locationId,
+                        keyRingId: userKeyDetails.keyRingId,
+                        keyId: userKeyDetails.keyId,
+                        secretId: userKeyDetails.secretId
+                    }
+                };
             }
-            console.log('ENCRYPTED THE FIELDs ENDED CACHED')
-            return {
-                encryptedData,
-                keyMetadata: {
-                    locationId: cachedLocationId,
-                    keyRingId: cachedKeyRingId,
-                    keyId: cachedKeyId,
-                    secretId: `secret-${kmsKeyName}`
-                },
-                isCached: true
-            };
-
+            if (userKeyDetails.locationId && userKeyDetails.keyRingId && userKeyDetails.keyId && userKeyDetails.secretId) {
+                //DEK generated as per document
+                const encryptedDEK = await secretManagerService.getSecret(userKeyDetails.secretId);
+                const dek = await kmsService.decryptDEK({
+                    encryptedDEKData: encryptedDEK,
+                    keyMetadata: {
+                        locationId: userKeyDetails.locationId,
+                        keyRingId: userKeyDetails.keyRingId,
+                        keyId: userKeyDetails.keyId
+                    }
+                });
+                console.log('DECRYPTED THE DEK')
+                // encrypt the data
+                console.log('ENCRYPTING THE FIELDs STARTED CACHED')
+                for (const field of modelConfig.Encrypt) {
+                    if (data[field.key]) {
+                        try {
+                            const fieldData = await this.encryptField(field.key, data[field.key], dek);
+                            if (fieldData) {
+                                // Merge the encrypted field data into the result
+                                Object.assign(encryptedData, fieldData);
+                            }
+                        } catch (error) {
+                            console.error(`Error encrypting field ${field.key}:`, error);
+                            // Keep the original value if encryption fails
+                            encryptedData[field.key] = data[field.key];
+                        }
+                    }
+                }
+                console.log('ENCRYPTED THE FIELDs ENDED CACHED')
+                return {
+                    encryptedData,
+                    keyMetadata: {
+                        locationId: userKeyDetails.locationId,
+                        keyRingId: userKeyDetails.keyRingId,
+                        keyId: userKeyDetails.keyId,
+                        secretId: userKeyDetails.secretId,
+                        encryptedDEK: encryptedDEK
+                    }
+                };
+            }
         }
-        //DEK generated as per document
+
+
+        if (isUserKeyDetails && userKeyDetails) {
+            //check if userKeyDetails has all the fields
+            if (userKeyDetails.locationId && userKeyDetails.keyRingId && userKeyDetails.keyId && userKeyDetails.secretId) {
+                const encryptedDEK = await secretManagerService.getSecret(userKeyDetails.secretId);
+
+                //DEK generated as per document
+                const dek = await kmsService.decryptDEK({
+                    encryptedDEKData: encryptedDEK,
+                    keyMetadata: {
+                        locationId: userKeyDetails.locationId,
+                        keyRingId: userKeyDetails.keyRingId,
+                        keyId: userKeyDetails.keyId
+                    }
+                });
+                console.log('DECRYPTED THE DEK')
+                // encrypt the data
+                console.log('ENCRYPTING THE FIELDs STARTED CACHED')
+                for (const field of modelConfig.Encrypt) {
+                    if (data[field.key]) {
+                        try {
+                            const fieldData = await this.encryptField(field.key, data[field.key], dek);
+                            //hash the field if shouldHash is true
+                            if (field.shouldHash) {
+                                const hash = createHash(data[field.key]);
+                                encryptedData[`${field.key}_hash`] = hash;
+                            }
+                            if (fieldData) {
+                                // Merge the encrypted field data into the result
+                                Object.assign(encryptedData, fieldData);
+                            }
+                        } catch (error) {
+                            console.error(`Error encrypting field ${field.key}:`, error);
+                            // Keep the original value if encryption fails
+                            encryptedData[field.key] = data[field.key];
+                        }
+                    }
+                }
+                console.log('ENCRYPTED THE FIELDs ENDED CACHED')
+                return {
+                    encryptedData,
+                    keyMetadata: {
+                        locationId: userKeyDetails.locationId,
+                        keyRingId: userKeyDetails.keyRingId,
+                        keyId: userKeyDetails.keyId,
+                        secretId: userKeyDetails.secretId
+                    }
+                };
+            }
+        }
 
         const dek = this.generateDEK();
         console.log('GENERATED DEK')
@@ -237,57 +324,100 @@ class EncryptionService {
                 locationId: locationId,
                 keyRingId: keyRingId,
                 keyId: keyId,
-                secretId: secretId
+                secretId: secretId,
+                encryptedDEK: encryptedDEK
             },
-            isCached: false
         };
     }
 
     // // Decrypt object fields based on configuration
-    // async decryptObject(modelName: string, data: any): Promise<any> {
-    //     const modelConfig = this.config.encryptedFields[modelName];
-    //     if (!modelConfig) return data;
-    //     console.log('FETCHED THE FIELDS TO DECRYPT')
-    //     const decryptedData = { ...data };
+    async decryptObject(modelName: string, data: any, userKeyDetailsResult?: UserKeyDetailsResult): Promise<any> {
+        const modelConfig = this.config.encryptedFields[modelName];
+        if (!modelConfig) return data;
+        console.log('FETCHED THE FIELDS TO DECRYPT')
+        const decryptedData = { ...data };
 
-    //     // Get the secretId from UserKeyDetails
-    //     const dek = await this.getKeyDetails(data.id);
+        const isUserKeyDetails = userKeyDetailsResult?.isUserKeyDetails;
+        const isCached = userKeyDetailsResult?.isCached;
+        const userKeyDetails = userKeyDetailsResult?.userKeyDetails;
+        let dek: Buffer | null = null;
 
-    //     // Decrypt each field separately
-    //     console.log('DECRYPTING THE FIELDs STARTED')
-    //     for (const field of modelConfig.fields) {
-    //         if (data[field]) {
-    //             try {
-    //                 const decryptedValue = await this.decryptField(field, data, dek);
-    //                 if (decryptedValue !== null) {
-    //                     decryptedData[field] = decryptedValue;
-    //                 }
-    //             } catch (error) {
-    //                 console.error(`Error decrypting field ${field}:`, error);
-    //                 // Keep the encrypted value if decryption fails
-    //                 decryptedData[field] = data[field];
-    //             }
+        if (isCached && userKeyDetails) {
+            //check if userKeyDetails has all the fields
+            if (userKeyDetails.locationId && userKeyDetails.keyRingId && userKeyDetails.keyId && userKeyDetails.secretId && userKeyDetails.encryptedDEK) {
+                //DEK generated as per document
+                dek = await kmsService.decryptDEK({
+                    encryptedDEKData: userKeyDetails.encryptedDEK,
+                    keyMetadata: {
+                        locationId: userKeyDetails.locationId,
+                        keyRingId: userKeyDetails.keyRingId,
+                        keyId: userKeyDetails.keyId
+                    }
+                });
+            }
+        }
 
-    //             // Remove the encryption metadata fields
-    //             delete decryptedData[`${field}_iv`];
-    //             delete decryptedData[`${field}_dek`];
-    //             delete decryptedData[`${field}_auth_tag`];
-    //         }
-    //     }
+        let encryptedDEK;
+        if (isUserKeyDetails && userKeyDetails && dek === null) {
+            //check if userKeyDetails has all the fields
+            if (userKeyDetails.locationId && userKeyDetails.keyRingId && userKeyDetails.keyId && userKeyDetails.secretId) {
+                //DEK generated as per document
+                encryptedDEK = await secretManagerService.getSecret(userKeyDetails.secretId);
+                dek = await kmsService.decryptDEK({
+                    encryptedDEKData: encryptedDEK,
+                    keyMetadata: {
+                        locationId: userKeyDetails.locationId,
+                        keyRingId: userKeyDetails.keyRingId,
+                        keyId: userKeyDetails.keyId
+                    }
+                });
+                console.log('DECRYPTED THE DEK')
+            }
+        }
 
-    //     return decryptedData;
-    // }
+        if (dek === null) {
+            console.log('DEK is not found')
+            return data;
+        }
+
+        // Decrypt each field separately
+        console.log('DECRYPTING THE FIELDs STARTED')
+        for (const field of modelConfig.Decrypt) {
+            if (data[field.key]) {
+                try {
+                    const decryptedValue = await this.decryptField(field.key, data, dek);
+                    if (decryptedValue !== null) {
+                        decryptedData[field.key] = decryptedValue;
+                    }
+                } catch (error) {
+                    console.error(`Error decrypting field ${field.key}:`, error);
+                    // Keep the encrypted value if decryption fails
+                    decryptedData[field.key] = data[field.key];
+                }
+
+                // Remove the encryption metadata fields
+                delete decryptedData[`${field}_iv`];
+                delete decryptedData[`${field}_dek`];
+                delete decryptedData[`${field}_auth_tag`];
+            }
+        }
+
+        return {
+            decryptedData,
+            encryptedDEK: encryptedDEK
+        };
+    }
 
     // New method to create UserKeyDetails after user creation
-    async createUserKeyDetails(userId: number, keyDetails: KeyMetadata): Promise<UserKeyDetails> {
-        return await UserKeyDetails.create({
-            userId,
-            locationId: keyDetails.locationId,
-            keyRingId: keyDetails.keyRingId,
-            keyId: keyDetails.keyId,
-            secretId: keyDetails.secretId
-        });
-    }
+    // async createUserKeyDetails(userId: number, keyDetails: KeyMetadata): Promise<UserKeyDetails> {
+    //     return await UserKeyDetails.create({
+    //         userId,
+    //         locationId: keyDetails.locationId,
+    //         keyRingId: keyDetails.keyRingId,
+    //         keyId: keyDetails.keyId,
+    //         secretId: keyDetails.secretId
+    //     });
+    // }
 }
 
 export default new EncryptionService(); 
