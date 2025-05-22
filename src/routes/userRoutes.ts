@@ -71,7 +71,11 @@ router.post('/users', async (req: Request, res: Response) => {
             password,
             firstName,
             lastName,
-            isActive: isActive ?? true
+            isActive: isActive ?? true,
+            email_encrypted: 'false',
+            password_encrypted: 'false',
+            firstName_encrypted: 'false',
+            lastName_encrypted: 'false'
         });
 
         res.status(201).json(user);
