@@ -19,6 +19,7 @@ export interface KeyMetadata {
     keyId: string;
     secretId: string;
     encryptedDEK?: Buffer | null;
+    keyVersion: string | null;
 }
 
 export interface EncryptedFieldData {
@@ -36,6 +37,7 @@ export interface EntityKeyDetails {
     keyId: string | null;
     secretId: string | null;
     encryptedDEK?: Buffer | null;
+    keyVersion: string | null;
 }
 
 export interface EntityKeyDetailsResult {

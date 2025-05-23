@@ -16,6 +16,7 @@ export interface SecretData {
     locationId: string;
     keyRingId: string;
     keyId: string;
+    keyVersion: string;
 }
 
 /**

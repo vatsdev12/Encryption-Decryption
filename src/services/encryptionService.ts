@@ -126,7 +126,7 @@ class EncryptionService {
      * @returns Object containing decrypted DEK and key metadata
      */
     private async resolveDEKFromEntityKeyDetails(entityKeyDetails: EntityKeyDetails): Promise<{ dek: Buffer, metadata: KeyMetadata }> {
-        if (!entityKeyDetails.secretId || !entityKeyDetails.locationId || !entityKeyDetails.keyRingId || !entityKeyDetails.keyId) {
+        if (!entityKeyDetails.secretId || !entityKeyDetails.locationId || !entityKeyDetails.keyRingId || !entityKeyDetails.keyId || !entityKeyDetails.keyVersion) {
             throw new Error('Missing required key details');
         }
 
@@ -141,7 +141,8 @@ class EncryptionService {
             keyMetadata: {
                 locationId: entityKeyDetails.locationId,
                 keyRingId: entityKeyDetails.keyRingId,
-                keyId: entityKeyDetails.keyId
+                keyId: entityKeyDetails.keyId,
+                keyVersion: entityKeyDetails.keyVersion
             }
         });
 
@@ -152,6 +153,7 @@ class EncryptionService {
                 keyRingId: entityKeyDetails.keyRingId,
                 keyId: entityKeyDetails.keyId,
                 secretId: entityKeyDetails.secretId,
+                keyVersion: entityKeyDetails.keyVersion,
                 encryptedDEK
             }
         };
@@ -179,7 +181,7 @@ class EncryptionService {
         if (entityKeyDetailsResult?.keyDetails) {
             const { keyDetails } = entityKeyDetailsResult;
 
-            if (keyDetails.locationId && keyDetails.keyRingId && keyDetails.keyId && keyDetails.secretId) {
+            if (keyDetails.locationId && keyDetails.keyRingId && keyDetails.keyId && keyDetails.secretId && keyDetails.keyVersion) {
                 const { dek, metadata } = await this.resolveDEKFromEntityKeyDetails(keyDetails);
                 const encryptedData = await this.handleFieldEncryption(modelConfig, data, dek);
                 return { encryptedData, keyMetadata: metadata };
@@ -190,12 +192,13 @@ class EncryptionService {
         const dek = this.generateDEK();
         const encryptedData = await this.handleFieldEncryption(modelConfig, data, dek);
 
-        const { encryptedDEK, locationId, keyRingId, keyId } = await kmsService.encryptDEK(dek, clientName);
+        const { encryptedDEK, locationId, keyRingId, keyId, keyVersion } = await kmsService.encryptDEK(dek, clientName);
         await secretManagerService.createSecret(secretId, {
             encryptedDEK,
             locationId,
             keyRingId,
-            keyId
+            keyId,
+            keyVersion
         });
 
         return {
@@ -205,7 +208,8 @@ class EncryptionService {
                 keyRingId,
                 keyId,
                 secretId,
-                encryptedDEK
+                encryptedDEK,
+                keyVersion
             }
         };
     }
@@ -226,7 +230,7 @@ class EncryptionService {
 
         if (entityKeyDetailsResult?.keyDetails) {
             const { keyDetails } = entityKeyDetailsResult;
-            if (keyDetails.locationId && keyDetails.keyRingId && keyDetails.keyId && keyDetails.secretId) {
+            if (keyDetails.locationId && keyDetails.keyRingId && keyDetails.keyId && keyDetails.secretId && keyDetails.keyVersion) {
                 const { dek, metadata } = await this.resolveDEKFromEntityKeyDetails(keyDetails);
                 encryptedDEK = metadata.encryptedDEK || undefined;
 

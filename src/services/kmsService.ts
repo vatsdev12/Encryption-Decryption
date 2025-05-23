@@ -9,6 +9,7 @@ export interface KeyMetadata {
     locationId: string;
     keyRingId: string;
     keyId: string;
+    keyVersion: string;
 }
 
 /**
@@ -19,6 +20,7 @@ interface EncryptDEKResult {
     locationId: string;
     keyRingId: string;
     keyId: string;
+    keyVersion: string;
 }
 
 /**
@@ -78,6 +80,24 @@ class KMSService {
                 }
             });
 
+            const keyVersionName = key.primary?.name;
+            if (!keyVersionName) {
+                throw new Error('Failed to retrieve primary key version');
+            }
+            const keyDetailsArray = keyVersionName.split('/');
+            // const keyVersionKeyName = keyDetailsArray[keyDetailsArray.length - 2];
+            // if (keyVersionKeyName != 'cryptoKeyVersions') {
+            //     throw new Error('Failed to retrieve key version key name');
+            // }
+            const keyVersion = keyDetailsArray[keyDetailsArray.length - 1];
+            if (!keyVersion) {
+                throw new Error('Failed to retrieve key version');
+            }
+
+            if (!key.name) {
+                throw new Error('Failed to create crypto key: key name is undefined');
+            }
+
             // Encrypt the DEK
             const [encryptResponse] = await this.client.encrypt({
                 name: key.name,
@@ -88,7 +108,8 @@ class KMSService {
                 encryptedDEK: encryptResponse.ciphertext as Buffer,
                 locationId: this.locationId,
                 keyRingId,
-                keyId
+                keyId,
+                keyVersion
             };
         } catch (error) {
             throw new Error(`Failed to create key ring and key: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -116,11 +137,12 @@ class KMSService {
      */
     async decryptDEK({ encryptedDEKData, keyMetadata }: DecryptDEKParams): Promise<Buffer> {
         try {
-            const keyName = this.client.cryptoKeyPath(
+            const keyName = this.client.cryptoKeyVersionPath(
                 this.projectId,
                 keyMetadata.locationId,
                 keyMetadata.keyRingId,
-                keyMetadata.keyId
+                keyMetadata.keyId,
+                keyMetadata.keyVersion
             );
 
             const [decryptResponse] = await this.client.decrypt({

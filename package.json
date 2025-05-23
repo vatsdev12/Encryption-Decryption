@@ -1,5 +1,5 @@
 {
-  "name": "@vatsdev/encryption-decryption-poc",
+  "name": "@manishtickets/encryption-decryption-poc",
   "version": "1.0.0",
   "description": "A TypeScript library for secure encryption and decryption using Google Cloud KMS and Secret Manager",
   "main": "dist/index.js",
@@ -9,6 +9,10 @@
     "dist",
     "README.md"
   ],
+  "private": false,
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsup",
     "clean": "rm -rf dist",
