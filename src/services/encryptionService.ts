@@ -10,8 +10,17 @@ import {
     EncryptedFieldData,
     EncryptedObjectResult,
     EntityKeyDetails,
-    EntityKeyDetailsResult
+    EntityKeyDetailsResult,
+    EncryptObjectParams
 } from '../types/encryption';
+import {
+    ConfigurationError,
+    EncryptionError,
+    ValidationError,
+    ErrorCodes
+} from '../types/errors';
+
+
 
 class EncryptionService {
     private config: EncryptionConfig;
@@ -86,175 +95,331 @@ class EncryptionService {
     }
 
     /**
+     * Encrypts an object's fields based on model configuration
+     * @param params - Object containing required parameters for encryption
+     * @returns Object containing encrypted data and key metadata
+     * @throws {ConfigurationError} When encryption configuration is missing
+     * @throws {EncryptionError} When encryption operations fail
+     * @throws {ValidationError} When required parameters are missing
+     */
+    async encryptObject({
+        modelName,
+        data,
+        clientName,
+        entityKeyDetailsResult
+    }: EncryptObjectParams): Promise<EncryptedObjectResult> {
+        try {
+            if (!modelName) {
+                throw new ValidationError(
+                    'Model name is required',
+                    ErrorCodes.VALIDATION.MISSING_REQUIRED_FIELD
+                );
+            }
+
+            if (!data) {
+                throw new ValidationError(
+                    'Data to encrypt is required',
+                    ErrorCodes.VALIDATION.MISSING_REQUIRED_FIELD
+                );
+            }
+
+            const modelConfig = this.config.encryptedFields[modelName];
+            if (!modelConfig) {
+                throw new ConfigurationError(
+                    `Encryption configuration not found for model ${modelName}`,
+                    ErrorCodes.CONFIGURATION.MISSING_CONFIG
+                );
+            }
+
+            const secretId = `secret-${clientName}`;
+
+            if (entityKeyDetailsResult?.keyDetails) {
+                try {
+                    const { keyDetails } = entityKeyDetailsResult;
+
+                    if (!keyDetails.locationId || !keyDetails.keyRingId || !keyDetails.keyId ||
+                        !keyDetails.secretId || !keyDetails.keyVersion) {
+                        throw new ValidationError(
+                            'Missing required key details',
+                            ErrorCodes.VALIDATION.MISSING_REQUIRED_FIELD
+                        );
+                    }
+
+                    const { dek, metadata } = await this.resolveDEKFromEntityKeyDetails(keyDetails);
+                    const encryptedData = await this.handleFieldEncryption(modelConfig, data, dek);
+                    return { encryptedData, keyMetadata: metadata };
+                } catch (error) {
+                    throw new EncryptionError(
+                        `Failed to use existing key details: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                        ErrorCodes.ENCRYPTION.KEY_DETAILS_ERROR
+                    );
+                }
+            }
+
+            // No cached or entity key details - create new DEK
+            try {
+                const dek = this.generateDEK();
+                const encryptedData = await this.handleFieldEncryption(modelConfig, data, dek);
+
+                const { encryptedDEK, locationId, keyRingId, keyId, keyVersion } = await kmsService.encryptDEK(dek, clientName);
+
+                await secretManagerService.createSecret(secretId, {
+                    encryptedDEK,
+                    locationId,
+                    keyRingId,
+                    keyId,
+                    keyVersion
+                });
+
+                return {
+                    encryptedData,
+                    keyMetadata: {
+                        locationId,
+                        keyRingId,
+                        keyId,
+                        secretId,
+                        encryptedDEK,
+                        keyVersion
+                    }
+                };
+            } catch (error) {
+                throw new EncryptionError(
+                    `Failed to create new encryption: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                    ErrorCodes.ENCRYPTION.CREATION_ERROR
+                );
+            }
+        } catch (error) {
+            if (error instanceof EncryptionError ||
+                error instanceof ConfigurationError ||
+                error instanceof ValidationError) {
+                throw error;
+            }
+            throw new EncryptionError(
+                `Unexpected error during encryption: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                ErrorCodes.ENCRYPTION.UNKNOWN_ERROR
+            );
+        }
+    }
+
+    /**
      * Handles encryption of multiple fields using the same DEK
      * @param modelConfig - Encryption configuration for the model
      * @param data - Data to encrypt
      * @param dek - Data Encryption Key to use
      * @returns Object containing encrypted data
+     * @throws {EncryptionError} When field encryption fails
      */
     private async handleFieldEncryption(
         modelConfig: any,
         data: any,
         dek: Buffer
     ): Promise<any> {
-        const encryptedData = { ...data };
+        try {
+            const encryptedData = { ...data };
 
-        for (const field of modelConfig.Encrypt) {
-            if (data[field.key]) {
-                try {
-                    const fieldData = await this.encryptField(field.key, data[field.key], dek);
-                    if (field.shouldHash) {
-                        const hash = createHash(data[field.key]);
-                        encryptedData[`${field.key}_hash`] = hash;
+            for (const field of modelConfig.Encrypt) {
+                if (data[field.key]) {
+                    try {
+                        const fieldData = await this.encryptField(field.key, data[field.key], dek);
+                        if (field.shouldHash) {
+                            const hash = createHash(data[field.key]);
+                            encryptedData[`${field.key}_hash`] = hash;
+                        }
+                        if (fieldData) {
+                            Object.assign(encryptedData, fieldData);
+                        }
+                    } catch (error) {
+                        throw new EncryptionError(
+                            `Failed to encrypt field ${field.key}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                            ErrorCodes.ENCRYPTION.FIELD_ENCRYPTION_ERROR
+                        );
                     }
-                    if (fieldData) {
-                        Object.assign(encryptedData, fieldData);
-                    }
-                } catch (error) {
-                    console.error(`Error encrypting field ${field.key}:`, error);
-                    encryptedData[field.key] = data[field.key];
                 }
             }
-        }
 
-        return encryptedData;
+            return encryptedData;
+        } catch (error) {
+            if (error instanceof EncryptionError) {
+                throw error;
+            }
+            throw new EncryptionError(
+                `Failed to handle field encryption: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                ErrorCodes.ENCRYPTION.FIELD_ENCRYPTION_ERROR
+            );
+        }
     }
 
     /**
      * Resolves DEK from entity key details, handling both cached and non-cached scenarios
      * @param entityKeyDetails - Entity's key details containing KMS metadata
      * @returns Object containing decrypted DEK and key metadata
+     * @throws {ValidationError} When required key details are missing
+     * @throws {EncryptionError} When DEK resolution fails
      */
     private async resolveDEKFromEntityKeyDetails(entityKeyDetails: EntityKeyDetails): Promise<{ dek: Buffer, metadata: KeyMetadata }> {
-        if (!entityKeyDetails.secretId || !entityKeyDetails.locationId || !entityKeyDetails.keyRingId || !entityKeyDetails.keyId || !entityKeyDetails.keyVersion) {
-            throw new Error('Missing required key details');
+        try {
+            if (!entityKeyDetails.secretId || !entityKeyDetails.locationId ||
+                !entityKeyDetails.keyRingId || !entityKeyDetails.keyId ||
+                !entityKeyDetails.keyVersion) {
+                throw new ValidationError(
+                    'Missing required key details',
+                    ErrorCodes.VALIDATION.MISSING_REQUIRED_FIELD
+                );
+            }
+
+            let encryptedDEK = entityKeyDetails.encryptedDEK;
+
+            if (!encryptedDEK) {
+                try {
+                    encryptedDEK = await secretManagerService.getSecret(entityKeyDetails.secretId);
+                } catch (error) {
+                    throw new EncryptionError(
+                        `Failed to retrieve secret: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                        ErrorCodes.ENCRYPTION.SECRET_RETRIEVAL_ERROR
+                    );
+                }
+            }
+
+            try {
+                const dek = await kmsService.decryptDEK({
+                    encryptedDEKData: encryptedDEK,
+                    keyMetadata: {
+                        locationId: entityKeyDetails.locationId,
+                        keyRingId: entityKeyDetails.keyRingId,
+                        keyId: entityKeyDetails.keyId,
+                        keyVersion: entityKeyDetails.keyVersion
+                    }
+                });
+
+                return {
+                    dek,
+                    metadata: {
+                        locationId: entityKeyDetails.locationId,
+                        keyRingId: entityKeyDetails.keyRingId,
+                        keyId: entityKeyDetails.keyId,
+                        secretId: entityKeyDetails.secretId,
+                        keyVersion: entityKeyDetails.keyVersion,
+                        encryptedDEK
+                    }
+                };
+            } catch (error) {
+                throw new EncryptionError(
+                    `Failed to decrypt DEK: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                    ErrorCodes.ENCRYPTION.DEK_DECRYPTION_ERROR
+                );
+            }
+        } catch (error) {
+            if (error instanceof ValidationError || error instanceof EncryptionError) {
+                throw error;
+            }
+            throw new EncryptionError(
+                `Failed to resolve DEK: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                ErrorCodes.ENCRYPTION.DEK_RESOLUTION_ERROR
+            );
         }
-
-        let encryptedDEK = entityKeyDetails.encryptedDEK;
-
-        if (!encryptedDEK) {
-            encryptedDEK = await secretManagerService.getSecret(entityKeyDetails.secretId);
-        }
-
-        const dek = await kmsService.decryptDEK({
-            encryptedDEKData: encryptedDEK,
-            keyMetadata: {
-                locationId: entityKeyDetails.locationId,
-                keyRingId: entityKeyDetails.keyRingId,
-                keyId: entityKeyDetails.keyId,
-                keyVersion: entityKeyDetails.keyVersion
-            }
-        });
-
-        return {
-            dek,
-            metadata: {
-                locationId: entityKeyDetails.locationId,
-                keyRingId: entityKeyDetails.keyRingId,
-                keyId: entityKeyDetails.keyId,
-                secretId: entityKeyDetails.secretId,
-                keyVersion: entityKeyDetails.keyVersion,
-                encryptedDEK
-            }
-        };
-    }
-
-    /**
-     * Encrypts an object's fields based on model configuration
-     * @param modelName - Name of the model being encrypted
-     * @param data - Data to encrypt
-     * @param kmsKeyName - Optional KMS key name for new encryption
-     * @param entityKeyDetailsResult - Optional entity key details for existing encryption
-     * @returns Object containing encrypted data and key metadata
-     */
-    async encryptObject(
-        modelName: string,
-        data: any,
-        clientName?: string,
-        entityKeyDetailsResult?: EntityKeyDetailsResult
-    ): Promise<EncryptedObjectResult> {
-        const modelConfig = this.config.encryptedFields[modelName];
-        if (!modelConfig) return { encryptedData: data, keyMetadata: {} as KeyMetadata };
-
-        const secretId = `secret-${clientName}`;
-
-        if (entityKeyDetailsResult?.keyDetails) {
-            const { keyDetails } = entityKeyDetailsResult;
-
-            if (keyDetails.locationId && keyDetails.keyRingId && keyDetails.keyId && keyDetails.secretId && keyDetails.keyVersion) {
-                const { dek, metadata } = await this.resolveDEKFromEntityKeyDetails(keyDetails);
-                const encryptedData = await this.handleFieldEncryption(modelConfig, data, dek);
-                return { encryptedData, keyMetadata: metadata };
-            }
-        }
-
-        // No cached or entity key details - create new DEK
-        const dek = this.generateDEK();
-        const encryptedData = await this.handleFieldEncryption(modelConfig, data, dek);
-
-        const { encryptedDEK, locationId, keyRingId, keyId, keyVersion } = await kmsService.encryptDEK(dek, clientName);
-        await secretManagerService.createSecret(secretId, {
-            encryptedDEK,
-            locationId,
-            keyRingId,
-            keyId,
-            keyVersion
-        });
-
-        return {
-            encryptedData,
-            keyMetadata: {
-                locationId,
-                keyRingId,
-                keyId,
-                secretId,
-                encryptedDEK,
-                keyVersion
-            }
-        };
     }
 
     /**
      * Decrypts an object's fields based on model configuration
-     * @param modelName - Name of the model being decrypted
-     * @param data - Data to decrypt
-     * @param entityKeyDetailsResult - Optional entity key details for decryption
+     * @param params - Object containing required parameters for decryption
      * @returns Object containing decrypted data and optional encrypted DEK
+     * @throws {ConfigurationError} When encryption configuration is missing
+     * @throws {EncryptionError} When decryption operations fail
+     * @throws {ValidationError} When required parameters are missing
      */
-    async decryptObject(modelName: string, data: any, entityKeyDetailsResult?: EntityKeyDetailsResult): Promise<{ decryptedData: any, encryptedDEK?: Buffer }> {
-        const modelConfig = this.config.encryptedFields[modelName];
-        if (!modelConfig) return { decryptedData: data };
+    async decryptObject({
+        modelName,
+        data,
+        entityKeyDetailsResult
+    }: {
+        modelName: string;
+        data: any;
+        entityKeyDetailsResult?: EntityKeyDetailsResult;
+    }): Promise<{ decryptedData: any, encryptedDEK?: Buffer }> {
+        try {
+            if (!modelName) {
+                throw new ValidationError(
+                    'Model name is required',
+                    ErrorCodes.VALIDATION.MISSING_REQUIRED_FIELD
+                );
+            }
 
-        const decryptedData = { ...data };
-        let encryptedDEK: Buffer | undefined;
+            if (!data) {
+                throw new ValidationError(
+                    'Data to decrypt is required',
+                    ErrorCodes.VALIDATION.MISSING_REQUIRED_FIELD
+                );
+            }
 
-        if (entityKeyDetailsResult?.keyDetails) {
-            const { keyDetails } = entityKeyDetailsResult;
-            if (keyDetails.locationId && keyDetails.keyRingId && keyDetails.keyId && keyDetails.secretId && keyDetails.keyVersion) {
-                const { dek, metadata } = await this.resolveDEKFromEntityKeyDetails(keyDetails);
-                encryptedDEK = metadata.encryptedDEK || undefined;
+            const modelConfig = this.config.encryptedFields[modelName];
+            if (!modelConfig) {
+                throw new ConfigurationError(
+                    `Encryption configuration not found for model ${modelName}`,
+                    ErrorCodes.CONFIGURATION.MISSING_CONFIG
+                );
+            }
 
-                for (const field of modelConfig.Decrypt) {
-                    const encryptedFieldName = `${field.key}_encrypted`;
-                    if (data[encryptedFieldName]) {
-                        try {
-                            const decryptedValue = await this.decryptField(field.key, data, dek);
-                            if (decryptedValue !== null) {
-                                decryptedData[encryptedFieldName] = decryptedValue;
-                                delete decryptedData[`${field.key}_iv`];
-                                delete decryptedData[`${field.key}_auth_tag`];
+            const decryptedData = { ...data };
+            let encryptedDEK: Buffer | undefined;
+
+            if (entityKeyDetailsResult?.keyDetails) {
+                try {
+                    const { keyDetails } = entityKeyDetailsResult;
+
+                    if (!keyDetails.locationId || !keyDetails.keyRingId || !keyDetails.keyId ||
+                        !keyDetails.secretId || !keyDetails.keyVersion) {
+                        throw new ValidationError(
+                            'Missing required key details',
+                            ErrorCodes.VALIDATION.MISSING_REQUIRED_FIELD
+                        );
+                    }
+
+                    const { dek, metadata } = await this.resolveDEKFromEntityKeyDetails(keyDetails);
+                    encryptedDEK = metadata.encryptedDEK || undefined;
+
+                    for (const field of modelConfig.Decrypt) {
+                        const encryptedFieldName = `${field.key}_encrypted`;
+                        if (data[encryptedFieldName]) {
+                            try {
+                                const decryptedValue = await this.decryptField(field.key, data, dek);
+                                if (decryptedValue !== null) {
+                                    decryptedData[encryptedFieldName] = decryptedValue;
+                                    delete decryptedData[`${field.key}_iv`];
+                                    delete decryptedData[`${field.key}_auth_tag`];
+                                }
+                            } catch (error) {
+                                console.warn(`Failed to decrypt field ${field.key}:`, error);
+                                decryptedData[encryptedFieldName] = data[field.key];
+                                // throw new EncryptionError(
+                                //     `Failed to decrypt field ${field.key}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                                //     ErrorCodes.ENCRYPTION.FIELD_DECRYPTION_ERROR
+                                // );
                             }
-                        } catch (error) {
-                            console.error(`Error decrypting field ${field.key}:`, error);
-                            // Keep original field if decryption fails
-                            decryptedData[encryptedFieldName] = data[field.key];
                         }
                     }
+                } catch (error) {
+                    if (error instanceof ValidationError || error instanceof EncryptionError) {
+                        throw error;
+                    }
+                    // throw new EncryptionError(
+                    //     `Failed to process key details: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                    //     ErrorCodes.ENCRYPTION.KEY_DETAILS_ERROR
+                    // );
                 }
             }
-        }
 
-        return { decryptedData, encryptedDEK };
+            return { decryptedData, encryptedDEK };
+        } catch (error) {
+            if (error instanceof ConfigurationError ||
+                error instanceof EncryptionError ||
+                error instanceof ValidationError) {
+                throw error;
+            }
+            throw new EncryptionError(
+                `Unexpected error during decryption: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                ErrorCodes.ENCRYPTION.UNKNOWN_ERROR
+            );
+        }
     }
 }
 

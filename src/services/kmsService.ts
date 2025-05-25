@@ -1,6 +1,12 @@
 import { KeyManagementServiceClient } from '@google-cloud/kms';
 import crypto from 'crypto';
 import createKms from '../utils/createKms';
+import {
+    ConfigurationError,
+    EncryptionError,
+    ValidationError,
+    ErrorCodes
+} from '../types/errors';
 
 /**
  * Metadata required for KMS key operations
@@ -41,13 +47,26 @@ class KMSService {
     private readonly keyRingPath: string;
 
     constructor() {
-        this.client = new KeyManagementServiceClient();
-        this.projectId = process.env.GOOGLE_CLOUD_PROJECT || '';
-        this.locationId = process.env.KMS_LOCATION_ID || 'global';
-        this.keyRingPath = this.client.locationPath(this.projectId, this.locationId);
+        try {
+            this.client = new KeyManagementServiceClient();
+            this.projectId = process.env.GOOGLE_CLOUD_PROJECT || '';
+            this.locationId = process.env.KMS_LOCATION_ID || 'global';
+            this.keyRingPath = this.client.locationPath(this.projectId, this.locationId);
 
-        if (!this.projectId) {
-            throw new Error('GOOGLE_CLOUD_PROJECT environment variable is required');
+            if (!this.projectId) {
+                throw new ConfigurationError(
+                    'GOOGLE_CLOUD_PROJECT environment variable is required',
+                    ErrorCodes.CONFIGURATION.MISSING_ENV_VAR
+                );
+            }
+        } catch (error) {
+            if (error instanceof ConfigurationError) {
+                throw error;
+            }
+            throw new ConfigurationError(
+                `Failed to initialize KMS service: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                ErrorCodes.CONFIGURATION.INITIALIZATION_ERROR
+            );
         }
     }
 
@@ -56,6 +75,7 @@ class KMSService {
      * @param dek - Data Encryption Key to encrypt
      * @param clientName - Optional name for the KMS key
      * @returns Promise resolving to encryption result with metadata
+     * @throws {EncryptionError} When key creation or encryption fails
      */
     private async createKeyRingAndKey(dek: Buffer, clientName?: string): Promise<EncryptDEKResult> {
         const { keyRingId, keyId } = createKms(clientName || crypto.randomBytes(16).toString('hex'));
@@ -82,20 +102,26 @@ class KMSService {
 
             const keyVersionName = key.primary?.name;
             if (!keyVersionName) {
-                throw new Error('Failed to retrieve primary key version');
+                throw new EncryptionError(
+                    'Failed to retrieve primary key version',
+                    ErrorCodes.ENCRYPTION.KEY_VERSION_ERROR
+                );
             }
+
             const keyDetailsArray = keyVersionName.split('/');
-            // const keyVersionKeyName = keyDetailsArray[keyDetailsArray.length - 2];
-            // if (keyVersionKeyName != 'cryptoKeyVersions') {
-            //     throw new Error('Failed to retrieve key version key name');
-            // }
             const keyVersion = keyDetailsArray[keyDetailsArray.length - 1];
             if (!keyVersion) {
-                throw new Error('Failed to retrieve key version');
+                throw new EncryptionError(
+                    'Failed to retrieve key version',
+                    ErrorCodes.ENCRYPTION.KEY_VERSION_ERROR
+                );
             }
 
             if (!key.name) {
-                throw new Error('Failed to create crypto key: key name is undefined');
+                throw new EncryptionError(
+                    'Failed to create crypto key: key name is undefined',
+                    ErrorCodes.ENCRYPTION.KEY_CREATION_ERROR
+                );
             }
 
             // Encrypt the DEK
@@ -112,7 +138,13 @@ class KMSService {
                 keyVersion
             };
         } catch (error) {
-            throw new Error(`Failed to create key ring and key: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            if (error instanceof EncryptionError) {
+                throw error;
+            }
+            throw new EncryptionError(
+                `Failed to create key ring and key: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                ErrorCodes.ENCRYPTION.KEY_CREATION_ERROR
+            );
         }
     }
 
@@ -121,12 +153,25 @@ class KMSService {
      * @param dek - Data Encryption Key to encrypt
      * @param clientName - Optional name for the KMS key
      * @returns Promise resolving to encryption result with metadata
+     * @throws {EncryptionError} When encryption fails
      */
     async encryptDEK(dek: Buffer, clientName?: string): Promise<EncryptDEKResult> {
         try {
+            if (!dek || dek.length !== 32) {
+                throw new ValidationError(
+                    'Invalid DEK: must be 32 bytes for AES-256-GCM',
+                    ErrorCodes.VALIDATION.INVALID_DEK
+                );
+            }
             return await this.createKeyRingAndKey(dek, clientName);
         } catch (error) {
-            throw new Error(`Failed to encrypt DEK: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            if (error instanceof ValidationError || error instanceof EncryptionError) {
+                throw error;
+            }
+            throw new EncryptionError(
+                `Failed to encrypt DEK: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                ErrorCodes.ENCRYPTION.DEK_ENCRYPTION_ERROR
+            );
         }
     }
 
@@ -134,9 +179,26 @@ class KMSService {
      * Decrypts a Data Encryption Key (DEK) using Google Cloud KMS
      * @param params - Parameters containing encrypted DEK and key metadata
      * @returns Promise resolving to decrypted DEK
+     * @throws {ValidationError} When input parameters are invalid
+     * @throws {EncryptionError} When decryption fails
      */
     async decryptDEK({ encryptedDEKData, keyMetadata }: DecryptDEKParams): Promise<Buffer> {
         try {
+            if (!encryptedDEKData) {
+                throw new ValidationError(
+                    'Encrypted DEK data is required',
+                    ErrorCodes.VALIDATION.MISSING_REQUIRED_FIELD
+                );
+            }
+
+            if (!keyMetadata.locationId || !keyMetadata.keyRingId ||
+                !keyMetadata.keyId || !keyMetadata.keyVersion) {
+                throw new ValidationError(
+                    'Missing required key metadata',
+                    ErrorCodes.VALIDATION.MISSING_REQUIRED_FIELD
+                );
+            }
+
             const keyName = this.client.cryptoKeyVersionPath(
                 this.projectId,
                 keyMetadata.locationId,
@@ -153,12 +215,21 @@ class KMSService {
             const dek = decryptResponse.plaintext as Buffer;
 
             if (dek.length !== 32) {
-                throw new Error(`Invalid DEK length: ${dek.length} bytes. Expected 32 bytes for AES-256-GCM`);
+                throw new ValidationError(
+                    `Invalid DEK length: ${dek.length} bytes. Expected 32 bytes for AES-256-GCM`,
+                    ErrorCodes.VALIDATION.INVALID_DEK
+                );
             }
 
             return dek;
         } catch (error) {
-            throw new Error(`Failed to decrypt DEK: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            if (error instanceof ValidationError || error instanceof EncryptionError) {
+                throw error;
+            }
+            throw new EncryptionError(
+                `Failed to decrypt DEK: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                ErrorCodes.ENCRYPTION.DEK_DECRYPTION_ERROR
+            );
         }
     }
 }

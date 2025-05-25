@@ -42,6 +42,11 @@ export interface EntityKeyDetails {
 
 export interface EntityKeyDetailsResult {
     keyDetails: EntityKeyDetails;
-    isCached: boolean;
-    isEntityKeyDetails: boolean;
+}
+
+export interface EncryptObjectParams {
+    modelName: string;
+    data: any;
+    clientName?: string;
+    entityKeyDetailsResult?: EntityKeyDetailsResult;
 }
