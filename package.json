@@ -1,10 +1,10 @@
 {
-  "name": "@manishtickets/encryption-decryption-poc",
+  "name": "@manishtickets/encryption-decryption",
   "version": "1.0.0",
   "description": "A TypeScript library for secure encryption and decryption using Google Cloud KMS and Secret Manager",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "homepage": "https://github.com/vatsdev/encryption-decryption-poc",
+  "homepage": "https://github.com/vatsdev12/Encryption-Decryption/tree/feature/package-creation",
   "files": [
     "dist",
     "README.md"
@@ -57,9 +57,9 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/vatsdev/encryption-decryption-poc.git"
+    "url": "git+https://github.com/vatsdev12/Encryption-Decryption.git"
   },
   "bugs": {
-    "url": "https://github.com/vatsdev/encryption-decryption-poc/issues"
+    "url": "https://github.com/vatsdev12/Encryption-Decryption/issues"
   }
 }

@@ -1,96 +1,127 @@
-# @vatsdev/encryption-decryption-poc
+# Field-Level Encryption Service
 
-A TypeScript library for secure encryption and decryption using Google Cloud KMS and Secret Manager.
+A TypeScript-based service that provides field-level encryption capabilities using Google Cloud KMS and Secret Manager.
 
 ## Features
 
-- Secure encryption and decryption using Google Cloud KMS
-- Secret management with Google Cloud Secret Manager
-- TypeScript support with full type definitions
-- Easy integration with Sequelize models
-- Support for field-level encryption
-- Automatic key management and rotation
-
-## Installation
-
-```bash
-npm install @vatsdev/encryption-decryption-poc
-```
+- Field-level encryption for sensitive data
+- Integration with Google Cloud KMS for key management
+- Secure storage of encrypted data encryption keys (DEKs) in Google Cloud Secret Manager
+- Support for multiple encryption algorithms (AES-256-GCM, AES-256-CBC)
+- Automatic key rotation and versioning
+- Comprehensive error handling and validation
 
 ## Prerequisites
 
-- Node.js >= 14.0.0
-- Google Cloud Platform account with KMS and Secret Manager enabled
-- Proper GCP credentials configured
+- Node.js (v14 or higher)
+- TypeScript
+- Google Cloud Platform account with:
+  - Cloud KMS enabled
+  - Secret Manager enabled
+  - Appropriate IAM permissions
+- Environment variables:
+  - `GOOGLE_CLOUD_PROJECT`: Your GCP project ID
+  - `GOOGLE_APPLICATION_CREDENTIALS`: Path to your service account key file
 
-## Usage
+## Project Structure
 
-```typescript
-import { EncryptionService, KMSService, SecretManagerService } from '@vatsdev/encryption-decryption-poc';
-
-// Initialize services
-const kmsService = new KMSService();
-const secretManagerService = new SecretManagerService();
-const encryptionService = new EncryptionService();
-
-// Encrypt data
-const encryptedData = await encryptionService.encryptObject({
-  data: { sensitiveField: 'value' },
-  model: YourModel,
-  metadata: {
-    locationId: 'global',
-    keyRingId: 'your-key-ring',
-    keyId: 'your-key'
-  }
-});
-
-// Decrypt data
-const decryptedData = await encryptionService.decryptObject({
-  data: encryptedData.data,
-  model: YourModel,
-  metadata: encryptedData.metadata
-});
+```
+src/
+├── services/
+│   ├── encryptionService.ts    # Core encryption service
+│   ├── kmsService.ts          # Google Cloud KMS integration
+│   └── secretManagerService.ts # Google Cloud Secret Manager integration
+├── types/
+│   └── errors.ts              # Custom error types and codes
+└── utils/
+    └── encryptionUtils.ts     # Encryption utility functions
 ```
 
-## Configuration
+## Core Components
 
-The library requires the following environment variables:
+### Encryption Service (`encryptionService.ts`)
+- Handles field-level encryption and decryption
+- Manages data encryption keys (DEKs)
+- Supports multiple encryption algorithms
+- Provides key rotation capabilities
 
-- `GOOGLE_CLOUD_PROJECT`: Your Google Cloud project ID
-- `KMS_LOCATION_ID`: Location ID for KMS (defaults to 'global')
+### KMS Service (`kmsService.ts`)
+- Manages encryption keys in Google Cloud KMS
+- Handles key creation and rotation
+- Provides key metadata management
 
-## API Documentation
+### Secret Manager Service (`secretManagerService.ts`)
+- Stores encrypted DEKs securely
+- Manages secret versions
+- Handles secret retrieval and updates
 
-### EncryptionService
+## Error Handling
 
-The main service for handling encryption and decryption operations.
+The service implements a comprehensive error handling system with custom error types:
 
-#### Methods
+- `ConfigurationError`: For initialization and configuration issues
+- `EncryptionError`: For encryption/decryption failures
+- `ValidationError`: For input validation failures
 
-- `encryptObject`: Encrypts an object using the specified model's configuration
-- `decryptObject`: Decrypts an object using the provided metadata
+Each error type includes specific error codes for better error tracking and handling.
 
-### KMSService
+## Usage Example
 
-Service for managing encryption keys in Google Cloud KMS.
+```typescript
+import encryptionService from './services/encryptionService';
 
-#### Methods
+// Encrypt a field
+const encryptedField = await encryptionService.encryptField('sensitive-data');
 
-- `encryptDEK`: Encrypts a Data Encryption Key (DEK)
-- `decryptDEK`: Decrypts a Data Encryption Key (DEK)
+// Decrypt a field
+const decryptedField = await encryptionService.decryptField(encryptedField);
+```
 
-### SecretManagerService
+## Security Considerations
 
-Service for managing secrets in Google Cloud Secret Manager.
+- All encryption keys are managed by Google Cloud KMS
+- DEKs are encrypted before storage
+- Automatic key rotation is supported
+- Input validation and sanitization
+- Comprehensive error handling
+- No sensitive data in logs
 
-#### Methods
+## Development
 
-- `createSecret`: Creates a new secret and adds the encrypted DEK as a version
-- `getSecret`: Retrieves the latest version of a secret
+1. Clone the repository
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+3. Set up environment variables
+4. Run tests:
+   ```bash
+   npm test
+   ```
 
-## Contributing
+## Error Codes
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+### Configuration Errors
+- `CONFIGURATION_MISSING_CONFIG`: Required configuration is missing
+- `CONFIGURATION_MISSING_ENV_VAR`: Required environment variable is missing
+- `CONFIGURATION_INITIALIZATION_ERROR`: Service initialization failed
+
+### Encryption Errors
+- `ENCRYPTION_FIELD_ENCRYPTION_ERROR`: Field encryption failed
+- `ENCRYPTION_FIELD_DECRYPTION_ERROR`: Field decryption failed
+- `ENCRYPTION_DEK_RESOLUTION_ERROR`: DEK resolution failed
+- `ENCRYPTION_DEK_DECRYPTION_ERROR`: DEK decryption failed
+- `ENCRYPTION_DEK_ENCRYPTION_ERROR`: DEK encryption failed
+- `ENCRYPTION_SECRET_RETRIEVAL_ERROR`: Secret retrieval failed
+- `ENCRYPTION_UNKNOWN_ERROR`: Unknown encryption error
+- `ENCRYPTION_KEY_DETAILS_ERROR`: Key details retrieval failed
+- `ENCRYPTION_KEY_VERSION_ERROR`: Key version error
+- `ENCRYPTION_KEY_CREATION_ERROR`: Key creation failed
+- `ENCRYPTION_CREATION_ERROR`: General creation error
+
+### Validation Errors
+- `VALIDATION_MISSING_REQUIRED_FIELD`: Required field is missing
+- `VALIDATION_INVALID_DEK`: Invalid DEK format or content
 
 ## License
 
