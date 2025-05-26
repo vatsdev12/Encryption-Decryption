@@ -67,14 +67,46 @@ Each error type includes specific error codes for better error tracking and hand
 
 ## Usage Example
 
+### Parameters
+
+#### `modelName` (string)
+The key identifier used in your `encryption.json` configuration file. This should match the model name you've configured for encryption.
+
+#### `sensitiveData` (string)
+The data you want to encrypt. This can be any string value that needs to be protected.
+
+#### `entityKeyDetails` (object)
+An object containing all required fields for encryption and decryption operations:
+
+```typescript
+interface EntityKeyDetails {
+    locationId: string | null;    // Google Cloud KMS location ID
+    keyRingId: string | null;     // KMS key ring identifier
+    keyId: string | null;         // KMS key identifier
+    secretId: string | null;      // Secret Manager secret ID
+    encryptedDEK?: Buffer | null; // Encrypted Data Encryption Key
+    keyVersion: string | null;    // KMS key version
+}
+```
+
+### Example Usage
+
 ```typescript
 import encryptionService from './services/encryptionService';
 
 // Encrypt a field
-const encryptedField = await encryptionService.encryptField('sensitive-data');
+const encryptedField = await encryptionService.encryptField(
+    'model-name',
+    'sensitive-data',
+    entityKeyDetails
+);
 
 // Decrypt a field
-const decryptedField = await encryptionService.decryptField(encryptedField);
+const decryptedField = await encryptionService.decryptField(
+    'model-name',
+    'encrypted-data',
+    entityKeyDetails
+);
 ```
 
 ## Security Considerations
