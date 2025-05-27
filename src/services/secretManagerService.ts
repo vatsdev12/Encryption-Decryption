@@ -11,7 +11,7 @@ import {
  */
 export interface SecretVersion {
     secretName: string;
-    versionName: string;
+    secretNamePath: string;
 }
 
 /**
@@ -19,10 +19,7 @@ export interface SecretVersion {
  */
 export interface SecretData {
     encryptedDEK: Buffer;
-    locationId: string;
-    keyRingId: string;
-    keyId: string;
-    keyVersion: string;
+    kmsPath: string;
 }
 
 /**
@@ -115,7 +112,7 @@ class SecretManagerService {
 
             return {
                 secretName: secret.name,
-                versionName: version.name
+                secretNamePath: version.name
             };
         } catch (error) {
             if (error instanceof ValidationError || error instanceof EncryptionError) {
@@ -135,25 +132,23 @@ class SecretManagerService {
      * @throws {ValidationError} When secret name is missing
      * @throws {EncryptionError} When secret retrieval fails
      */
-    async getSecret(secretName: string): Promise<Buffer> {
+    async getSecret(secretNamePath: string): Promise<Buffer> {
         try {
-            if (!secretName) {
+            if (!secretNamePath) {
                 throw new ValidationError(
                     'Secret name is required',
                     ErrorCodes.VALIDATION.MISSING_REQUIRED_FIELD
                 );
             }
 
-            const secretVersionName = `projects/${this.projectId}/secrets/${secretName}/versions/latest`;
-
             const [version] = await this.secretManager.accessSecretVersion({
-                name: secretVersionName,
+                name: secretNamePath,
             });
 
             const encryptedDEK = version.payload?.data;
             if (!encryptedDEK) {
                 throw new EncryptionError(
-                    `No payload data found in secret version for ${secretName}`,
+                    `No payload data found in secret version for ${secretNamePath}`,
                     ErrorCodes.ENCRYPTION.SECRET_RETRIEVAL_ERROR
                 );
             }

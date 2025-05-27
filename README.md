@@ -65,6 +65,88 @@ The service implements a comprehensive error handling system with custom error t
 
 Each error type includes specific error codes for better error tracking and handling.
 
+## Configuration
+
+### Environment Variables
+
+The package uses the following environment variables:
+
+- `ENCRYPTION_CONFIG_PATH`: Path to your encryption configuration file (optional)
+- `GOOGLE_CLOUD_PROJECT`: Your GCP project ID (required)
+- `GOOGLE_APPLICATION_CREDENTIALS`: Path to your service account key file (required)
+
+### Configuration File
+
+The encryption configuration file (`encryption.json`) can be placed in one of these locations:
+1. Path specified by `ENCRYPTION_CONFIG_PATH` environment variable
+2. `./config/encryption.json`
+3. `./src/config/encryption.json`
+4. `./encryption.json`
+
+Example configuration file:
+```json
+{
+  "encryptedFields": {
+    "User": {
+      "Encrypt": [
+        {
+          "key": "email",
+          "shouldHash": true
+        },
+        {
+          "key": "phone",
+          "shouldHash": false
+        }
+      ],
+      "Decrypt": [
+        {
+          "key": "email"
+        },
+        {
+          "key": "phone"
+        }
+      ]
+    }
+  }
+}
+```
+
+### Using in Your Project
+
+1. Install the package:
+   ```bash
+   npm install @vatsdev/encryption-decryption-poc
+   ```
+
+2. Set up environment variables in your project:
+   ```bash
+   # .env file
+   ENCRYPTION_CONFIG_PATH=/path/to/your/encryption.json
+   GOOGLE_CLOUD_PROJECT=your-project-id
+   GOOGLE_APPLICATION_CREDENTIALS=/path/to/your/service-account-key.json
+   ```
+
+3. Create your encryption configuration file
+
+4. Use the package in your code:
+   ```typescript
+   import { encryptionService } from '@vatsdev/encryption-decryption-poc';
+
+   // Encrypt data
+   const result = await encryptionService.encryptObject({
+     modelName: 'User',
+     data: { email: 'user@example.com', phone: '1234567890' },
+     clientName: 'your-client'
+   });
+
+   // Decrypt data
+   const decrypted = await encryptionService.decryptObject({
+     modelName: 'User',
+     data: result.encryptedData,
+     entityKeyDetailsResult: result.keyMetadata
+   });
+   ```
+
 ## Usage Example
 
 ### Parameters

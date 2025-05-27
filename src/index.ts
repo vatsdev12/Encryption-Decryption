@@ -1,12 +1,21 @@
+// Export all utility functions
+export {
+    generateDEK,
+    encryptField,
+    decryptField,
+    handleFieldEncryption,
+    createNewEncryption,
+    createHash
+} from './utils';
+
 // Export services
-export { default as KMSService } from './services/kmsService';
-export { default as SecretManagerService } from './services/secretManagerService';
 export { default as EncryptionService } from './services/encryptionService';
+export { default as kmsService } from './services/kmsService';
+export { default as secretManagerService } from './services/secretManagerService';
 
 // Export types
-export type { KeyMetadata } from './services/kmsService';
-export type { SecretVersion, SecretData } from './services/secretManagerService';
-export type { EntityKeyDetails, EntityKeyDetailsResult } from './types/encryption';
+export * from './types/encryption';
+export * from './types/errors';
 
 // Export interfaces
 export interface EncryptionConfig {

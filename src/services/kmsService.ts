@@ -7,6 +7,9 @@ import {
     ValidationError,
     ErrorCodes
 } from '../types/errors';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 /**
  * Metadata required for KMS key operations
@@ -23,10 +26,7 @@ export interface KeyMetadata {
  */
 interface EncryptDEKResult {
     encryptedDEK: Buffer;
-    locationId: string;
-    keyRingId: string;
-    keyId: string;
-    keyVersion: string;
+    kmsPath: string;
 }
 
 /**
@@ -34,7 +34,7 @@ interface EncryptDEKResult {
  */
 interface DecryptDEKParams {
     encryptedDEKData: Buffer;
-    keyMetadata: KeyMetadata;
+    kmsPath: string;
 }
 
 /**
@@ -132,10 +132,7 @@ class KMSService {
 
             return {
                 encryptedDEK: encryptResponse.ciphertext as Buffer,
-                locationId: this.locationId,
-                keyRingId,
-                keyId,
-                keyVersion
+                kmsPath: keyVersionName
             };
         } catch (error) {
             if (error instanceof EncryptionError) {
@@ -182,7 +179,7 @@ class KMSService {
      * @throws {ValidationError} When input parameters are invalid
      * @throws {EncryptionError} When decryption fails
      */
-    async decryptDEK({ encryptedDEKData, keyMetadata }: DecryptDEKParams): Promise<Buffer> {
+    async decryptDEK({ encryptedDEKData, kmsPath }: DecryptDEKParams): Promise<Buffer> {
         try {
             if (!encryptedDEKData) {
                 throw new ValidationError(
@@ -191,24 +188,17 @@ class KMSService {
                 );
             }
 
-            if (!keyMetadata.locationId || !keyMetadata.keyRingId ||
-                !keyMetadata.keyId || !keyMetadata.keyVersion) {
+            if (!kmsPath) {
                 throw new ValidationError(
                     'Missing required key metadata',
                     ErrorCodes.VALIDATION.MISSING_REQUIRED_FIELD
                 );
             }
+            const keyMetadata = kmsPath.split('/').slice(0,8).join('/');
 
-            const keyName = this.client.cryptoKeyVersionPath(
-                this.projectId,
-                keyMetadata.locationId,
-                keyMetadata.keyRingId,
-                keyMetadata.keyId,
-                keyMetadata.keyVersion
-            );
 
             const [decryptResponse] = await this.client.decrypt({
-                name: keyName,
+                name: keyMetadata,
                 ciphertext: encryptedDEKData
             });
 

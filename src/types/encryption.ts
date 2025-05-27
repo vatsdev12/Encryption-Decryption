@@ -28,7 +28,12 @@ export interface EncryptedFieldData {
 
 export interface EncryptedObjectResult {
     encryptedData: any;
-    keyMetadata: KeyMetadata;
+}
+export interface KeyDetailsObjectResult {
+    kmsPath: string;
+    secretId: string;
+    secretNamePath: string;
+    encryptedDEK: Buffer;
 }
 
 export interface EntityKeyDetails {
@@ -41,12 +46,13 @@ export interface EntityKeyDetails {
 }
 
 export interface EntityKeyDetailsResult {
-    keyDetails: EntityKeyDetails;
+    kmsPath: string;
+    secretId: string;
+    secretNamePath: string;
+    encryptedDEK?: Buffer;
 }
-
 export interface EncryptObjectParams {
     modelName: string;
     data: any;
-    clientName?: string;
-    entityKeyDetailsResult?: EntityKeyDetailsResult;
+    entityKeyDetailsResult: EntityKeyDetailsResult;
 }
