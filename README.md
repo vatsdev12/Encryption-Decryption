@@ -27,33 +27,38 @@ A TypeScript-based service that provides field-level encryption capabilities usi
 
 ```
 src/
-├── services/
-│   ├── encryptionService.ts    # Core encryption service
-│   ├── kmsService.ts          # Google Cloud KMS integration
-│   └── secretManagerService.ts # Google Cloud Secret Manager integration
-├── types/
-│   └── errors.ts              # Custom error types and codes
-└── utils/
-    └── encryptionUtils.ts     # Encryption utility functions
+├── services/          # Core service implementations
+├── utils/            # Utility functions and helpers
+├── types/            # TypeScript type definitions
+├── index.ts          # Main entry point
+├── functions.ts      # Function exports
+└── types.ts          # Type exports
 ```
 
 ## Core Components
 
-### Encryption Service (`encryptionService.ts`)
-- Handles field-level encryption and decryption
-- Manages data encryption keys (DEKs)
-- Supports multiple encryption algorithms
-- Provides key rotation capabilities
+### Main Entry Point (`index.ts`)
+- Exports main functionality
+- Provides service initialization
+- Handles configuration setup
 
-### KMS Service (`kmsService.ts`)
-- Manages encryption keys in Google Cloud KMS
-- Handles key creation and rotation
-- Provides key metadata management
+### Services Directory
+Contains core service implementations for:
+- Encryption/Decryption operations
+- KMS integration
+- Secret Manager integration
 
-### Secret Manager Service (`secretManagerService.ts`)
-- Stores encrypted DEKs securely
-- Manages secret versions
-- Handles secret retrieval and updates
+### Utils Directory
+Contains utility functions for:
+- Encryption/Decryption helpers
+- Data validation
+- Error handling
+
+### Types Directory
+Contains TypeScript type definitions for:
+- Service interfaces
+- Configuration types
+- Error types
 
 ## Error Handling
 
