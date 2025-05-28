@@ -106,7 +106,7 @@ class EncryptionService {
     private async resolveDEKFromEntityKeyDetails(entityKeyDetails: EntityKeyDetailsResult): Promise<{ dek: Buffer, encryptedDEK: Buffer }> {
         try {
             if (!entityKeyDetails.secretId || !entityKeyDetails.kmsPath ||
-                !entityKeyDetails.secretNamePath || !entityKeyDetails.encryptedDEK) {
+                !entityKeyDetails.secretNamePath ) {
                 throw new ValidationError(
                     'Missing required key details',
                     ErrorCodes.VALIDATION.MISSING_REQUIRED_FIELD
@@ -213,6 +213,7 @@ class EncryptionService {
                             try {
                                 const decryptedValue = await decryptField(field.key, data, dek);
                                 if (decryptedValue !== null) {
+                                    decryptedData[field.key] = decryptedValue;
                                     decryptedData[encryptedFieldName] = decryptedValue;
                                     delete decryptedData[`${field.key}_iv`];
                                     delete decryptedData[`${field.key}_auth_tag`];

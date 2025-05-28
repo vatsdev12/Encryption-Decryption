@@ -45,6 +45,7 @@ export const encryptField = async (
     const authTag = cipher.getAuthTag();
 
     return {
+        [fieldName]: encrypted,
         [`${fieldName}_encrypted`]: encrypted,
         [`${fieldName}_iv`]: iv.toString('hex'),
         [`${fieldName}_auth_tag`]: authTag.toString('hex')

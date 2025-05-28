@@ -49,7 +49,7 @@ export interface EntityKeyDetailsResult {
     kmsPath: string;
     secretId: string;
     secretNamePath: string;
-    encryptedDEK?: Buffer;
+    encryptedDEK?: Buffer | null;
 }
 export interface EncryptObjectParams {
     modelName: string;
