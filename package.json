@@ -1,6 +1,6 @@
 {
   "name": "@manishtickets/encryption-decryption",
-  "version": "1.0.3",
+  "version": "1.0.7",
   "description": "A TypeScript library for secure encryption and decryption using Google Cloud KMS and Secret Manager",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

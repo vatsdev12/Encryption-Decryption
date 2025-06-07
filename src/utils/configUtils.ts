@@ -36,7 +36,7 @@ export const getEncryptionConfig = (): EncryptionConfig => {
  */
 export const getModelConfig = (modelName: string) => {
     const config = getEncryptionConfig();
-    const modelConfig = config.encryptedFields[modelName];
+    const modelConfig = config[modelName];
 
     if (!modelConfig) {
         throw new ConfigurationError(

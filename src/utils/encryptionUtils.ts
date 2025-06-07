@@ -104,20 +104,46 @@ export const handleFieldEncryption = async (
         const modelConfig = getModelConfig(modelName);
         const encryptedData = { ...data };
 
-        for (const field of modelConfig.Encrypt) {
-            if (data[field.key]) {
+        for (const [fieldName, fieldConfig] of Object.entries(modelConfig)) {
+            if (fieldConfig.shouldEncrypt && data[fieldName]) {
                 try {
-                    const fieldData = await encryptField(field.key, data[field.key], dek);
-                    if (field.shouldHash) {
-                        const hash = createHash(data[field.key]);
-                        encryptedData[`${field.key}_hash`] = hash;
-                    }
-                    if (fieldData) {
-                        Object.assign(encryptedData, fieldData);
+                    if (fieldConfig.isObject) {
+                        // Handle nested object encryption
+                        if (typeof data[fieldName] === 'object') {
+                            const nestedEncrypted = await handleFieldEncryption(
+                                fieldName,
+                                data[fieldName],
+                                dek
+                            );
+                            encryptedData[fieldName] = nestedEncrypted;
+                        }
+                    } else if (fieldConfig.isArrayOfObjects) {
+                        // Handle array of objects encryption
+                        if (Array.isArray(data[fieldName])) {
+                            encryptedData[fieldName] = await Promise.all(
+                                data[fieldName].map(async (item: any) => {
+                                    return await handleFieldEncryption(
+                                        fieldName,
+                                        item,
+                                        dek
+                                    );
+                                })
+                            );
+                        }
+                    } else {
+                        // Handle regular field encryption
+                        const fieldData = await encryptField(fieldName, data[fieldName], dek);
+                        if (fieldConfig.shouldHash) {
+                            const hash = createHash(data[fieldName]);
+                            encryptedData[`${fieldName}_hash`] = hash;
+                        }
+                        if (fieldData) {
+                            Object.assign(encryptedData, fieldData);
+                        }
                     }
                 } catch (error) {
                     throw new EncryptionError(
-                        `Failed to encrypt field ${field.key}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                        `Failed to encrypt field ${fieldName}: ${error instanceof Error ? error.message : 'Unknown error'}`,
                         ErrorCodes.ENCRYPTION.FIELD_ENCRYPTION_ERROR
                     );
                 }
@@ -152,7 +178,7 @@ export const createNewEncryption = async (
 
         const { encryptedDEK, kmsPath } = await kmsService.encryptDEK(dek, clientName);
 
-        const secretId = `secret-${clientName}`;
+        const secretId = `secret-${clientName}-${Date.now()}`;
         const { secretNamePath } = await secretManagerService.createSecret(secretId, {
             encryptedDEK,
             kmsPath

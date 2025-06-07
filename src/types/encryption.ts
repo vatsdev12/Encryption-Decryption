@@ -1,16 +1,16 @@
+export interface EncryptionFieldConfig {
+    shouldEncrypt: boolean;
+    shouldDecrypt: boolean;
+    shouldHash: boolean;
+    isObject: boolean;
+    isArrayOfObjects: boolean;
+}
+
 export interface EncryptionConfig {
-    encryptedFields: {
-        [key: string]: {
-            Encrypt: {
-                key: string;
-                shouldHash: boolean;
-            }[];
-            Decrypt: {
-                key: string;
-                shouldHash: boolean;
-            }[];
-        };
+    [key: string]: {
+        [fieldName: string]: EncryptionFieldConfig;
     };
+
 }
 
 export interface KeyMetadata {

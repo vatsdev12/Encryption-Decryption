@@ -38,7 +38,7 @@ class EncryptionService {
         modelName,
         data,
         entityKeyDetailsResult
-    }: EncryptObjectParams): Promise<{encryptedData:any,encryptedDEK:Buffer}> {
+    }: EncryptObjectParams): Promise<{ encryptedData: any, encryptedDEK: Buffer }> {
         try {
             if (!modelName) {
                 throw new ValidationError(
@@ -106,7 +106,7 @@ class EncryptionService {
     private async resolveDEKFromEntityKeyDetails(entityKeyDetails: EntityKeyDetailsResult): Promise<{ dek: Buffer, encryptedDEK: Buffer }> {
         try {
             if (!entityKeyDetails.secretId || !entityKeyDetails.kmsPath ||
-                !entityKeyDetails.secretNamePath ) {
+                !entityKeyDetails.secretNamePath) {
                 throw new ValidationError(
                     'Missing required key details',
                     ErrorCodes.VALIDATION.MISSING_REQUIRED_FIELD
@@ -182,7 +182,7 @@ class EncryptionService {
                 );
             }
 
-            const modelConfig = this.config.encryptedFields[modelName];
+            const modelConfig = this.config[modelName];
             if (!modelConfig) {
                 throw new ConfigurationError(
                     `Encryption configuration not found for model ${modelName}`,
@@ -207,20 +207,43 @@ class EncryptionService {
                     const { dek, encryptedDEK } = await this.resolveDEKFromEntityKeyDetails(entityKeyDetailsResult);
                     encryptedDEKFromSecret = encryptedDEK;
 
-                    for (const field of modelConfig.Decrypt) {
-                        const encryptedFieldName = `${field.key}_encrypted`;
-                        if (data[encryptedFieldName]) {
-                            try {
-                                const decryptedValue = await decryptField(field.key, data, dek);
-                                if (decryptedValue !== null) {
-                                    decryptedData[field.key] = decryptedValue;
-                                    decryptedData[encryptedFieldName] = decryptedValue;
-                                    delete decryptedData[`${field.key}_iv`];
-                                    delete decryptedData[`${field.key}_auth_tag`];
+                    for (const [fieldName, fieldConfig] of Object.entries(modelConfig)) {
+                        if (fieldConfig.shouldDecrypt) {
+                            const encryptedFieldName = `${fieldName}_encrypted`;
+
+                            if (fieldConfig.isObject && typeof data[fieldName] === 'object') {
+                                // Handle nested object decryption
+                                const nestedDecrypted = await this.decryptObject({
+                                    modelName: fieldName,
+                                    data: data[fieldName],
+                                    entityKeyDetailsResult
+                                });
+                                decryptedData[fieldName] = nestedDecrypted.decryptedData;
+                            } else if (fieldConfig.isArrayOfObjects && Array.isArray(data[fieldName])) {
+                                // Handle array of objects decryption
+                                decryptedData[fieldName] = await Promise.all(
+                                    data[fieldName].map(async (item: any) => {
+                                        const decrypted = await this.decryptObject({
+                                            modelName: fieldName,
+                                            data: item,
+                                            entityKeyDetailsResult
+                                        });
+                                        return decrypted.decryptedData;
+                                    })
+                                );
+                            } else if (data[encryptedFieldName]) {
+                                try {
+                                    const decryptedValue = await decryptField(fieldName, data, dek);
+                                    if (decryptedValue !== null) {
+                                        decryptedData[fieldName] = decryptedValue;
+                                        decryptedData[encryptedFieldName] = decryptedValue;
+                                        delete decryptedData[`${fieldName}_iv`];
+                                        delete decryptedData[`${fieldName}_auth_tag`];
+                                    }
+                                } catch (error) {
+                                    console.warn(`Failed to decrypt field ${fieldName}:`, error);
+                                    decryptedData[encryptedFieldName] = data[fieldName];
                                 }
-                            } catch (error) {
-                                console.warn(`Failed to decrypt field ${field.key}:`, error);
-                                decryptedData[encryptedFieldName] = data[field.key];
                             }
                         }
                     }
@@ -233,8 +256,8 @@ class EncryptionService {
 
             return { decryptedData, encryptedDEK: encryptedDEKFromSecret };
         } catch (error) {
-            if (error instanceof ConfigurationError ||
-                error instanceof EncryptionError ||
+            if (error instanceof EncryptionError ||
+                error instanceof ConfigurationError ||
                 error instanceof ValidationError) {
                 throw error;
             }
